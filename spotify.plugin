@@ -1,5 +1,5 @@
-#!name=Spotify Premium 解锁（自用修复版）
-#!desc=修复了请求挂起及二进制解析异常
+#!name=Spotify Premium 解锁（修复切歌版）
+#!desc=修复了请求挂起及二进制解析异常，并调整风控字段
 #!author=fmwgz8n4hr-dotcom
 
 [mitm]
