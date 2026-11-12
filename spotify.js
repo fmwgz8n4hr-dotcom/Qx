@@ -363,4 +363,48 @@ function modifyAttributes(attributes) {
     attributes["nft-disabled"] = { stringValue: "1" };
     attributes["offline"] = { boolValue: true };
     attributes["on-demand"] = { boolValue: true };
-    attributes["payments-initial
+    attributes["payments-initial-campaign"] = { stringValue: "default" };
+    attributes["player-license"] = { stringValue: "premium" };
+    attributes["player-license-v2"] = { stringValue: "premium" };
+    attributes["product-expiry"] = { stringValue: isoDate };
+    attributes["shuffle-eligible"] = { boolValue: true };
+    attributes["social-session"] = { boolValue: true };
+    attributes["social-session-free-tier"] = { boolValue: false };
+    attributes["streaming-rules"] = { stringValue: "" };
+    attributes["subscription-enddate"] = { stringValue: isoDate };
+    attributes["type"] = { stringValue: "premium" };
+    attributes["unrestricted"] = { boolValue: true };
+
+    attributes["high-bitrate"] = { boolValue: true };
+    attributes["audio-quality"] = { stringValue: "1" };
+    attributes["mobile"] = { boolValue: true };
+    attributes["mobile-login"] = { boolValue: true };
+    attributes["libspotify"] = { boolValue: true };
+    attributes["pause-after"] = { longValue: 0 };
+    attributes["license-acceptance-grace-days"] = { longValue: 30 };
+    attributes["com.spotify.madprops.use.ucs.product.state"] = { boolValue: true };
+
+    delete attributes["ad-use-adlogic"];
+    delete attributes["ad-catalogues"];
+    delete attributes["shuffle"];
+    delete attributes["payment-state"];
+    delete attributes["last-premium-activation-date"];
+    delete attributes["on-demand-trial"];
+    delete attributes["on-demand-trial-in-progress"];
+    delete attributes["smart-shuffle"];
+    delete attributes["at-signal"];
+    delete attributes["feature-set-id-masked"];
+    delete attributes["strider-key"];
+    delete attributes["is-eligible-for-trial"];
+    delete attributes["is-eligible-for-upsell"];
+    delete attributes["upsell-state"];
+    delete attributes["ad-session-persistence"];
+    delete attributes["ad-formats-preroll-video"];
+
+    for (let i = 1; i <= 100; i++) {
+        delete attributes[`is-premium-eligible-v${i}`];
+    }
+    delete attributes["is-premium-eligible"];
+
+    console.log("accountAttributesMapObj processed");
+}
