@@ -17,7 +17,6 @@ const rules = [
     { name: "playback_timeout_action", action: "setEnum", value: "Nothing" },
     { name: "is_remove_from_queue_enabled_for_mft_plus", action: "remove" },
     { name: "is_reordering_for_mft_plus_allowed", action: "remove" },
-    { name: "ads", action: "setBool", value: false },
     { name: "ad_metadata", action: "remove" },
     { name: "ad_slots", action: "remove" },
     { name: "enable_ads", action: "setBool", value: false },
@@ -352,7 +351,7 @@ function modifyAttributes(attributes) {
     oneYearFromNow.setUTCFullYear(oneYearFromNow.getUTCFullYear() + 1);
     const isoDate = oneYearFromNow.toISOString();
 
-    attributes["ads"] = { boolValue: false };
+    // 删除了 attributes["ads"] = { boolValue: false }; 规避风控切歌
     attributes["ab-ad-player-targeting"] = { stringValue: "0" };
     attributes["allow-advertising-id-transmission"] = { boolValue: false };
     attributes["restrict-advertising-id-transmission"] = { boolValue: true };
@@ -364,48 +363,4 @@ function modifyAttributes(attributes) {
     attributes["nft-disabled"] = { stringValue: "1" };
     attributes["offline"] = { boolValue: true };
     attributes["on-demand"] = { boolValue: true };
-    attributes["payments-initial-campaign"] = { stringValue: "default" };
-    attributes["player-license"] = { stringValue: "premium" };
-    attributes["player-license-v2"] = { stringValue: "premium" };
-    attributes["product-expiry"] = { stringValue: isoDate };
-    attributes["shuffle-eligible"] = { boolValue: true };
-    attributes["social-session"] = { boolValue: true };
-    attributes["social-session-free-tier"] = { boolValue: false };
-    attributes["streaming-rules"] = { stringValue: "" };
-    attributes["subscription-enddate"] = { stringValue: isoDate };
-    attributes["type"] = { stringValue: "premium" };
-    attributes["unrestricted"] = { boolValue: true };
-
-    attributes["high-bitrate"] = { boolValue: true };
-    attributes["audio-quality"] = { stringValue: "1" };
-    attributes["mobile"] = { boolValue: true };
-    attributes["mobile-login"] = { boolValue: true };
-    attributes["libspotify"] = { boolValue: true };
-    attributes["pause-after"] = { longValue: 0 };
-    attributes["license-acceptance-grace-days"] = { longValue: 30 };
-    attributes["com.spotify.madprops.use.ucs.product.state"] = { boolValue: true };
-
-    delete attributes["ad-use-adlogic"];
-    delete attributes["ad-catalogues"];
-    delete attributes["shuffle"];
-    delete attributes["payment-state"];
-    delete attributes["last-premium-activation-date"];
-    delete attributes["on-demand-trial"];
-    delete attributes["on-demand-trial-in-progress"];
-    delete attributes["smart-shuffle"];
-    delete attributes["at-signal"];
-    delete attributes["feature-set-id-masked"];
-    delete attributes["strider-key"];
-    delete attributes["is-eligible-for-trial"];
-    delete attributes["is-eligible-for-upsell"];
-    delete attributes["upsell-state"];
-    delete attributes["ad-session-persistence"];
-    delete attributes["ad-formats-preroll-video"];
-
-    for (let i = 1; i <= 100; i++) {
-        delete attributes[`is-premium-eligible-v${i}`];
-    }
-    delete attributes["is-premium-eligible"];
-
-    console.log("accountAttributesMapObj processed");
-}
+    attributes["payments-initial
