@@ -1,6 +1,6 @@
 #!name=Spotify Premium 解锁（自用修复版）
 #!desc=修复了请求挂起及二进制解析异常
-#!author=YourName
+#!author=fmwgz8n4hr-dotcom
 
 [mitm]
 hostname = spclient.wg.spotify.com
