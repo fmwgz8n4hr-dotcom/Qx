@@ -6,5 +6,5 @@
 hostname = spclient.wg.spotify.com
 
 [rewrite_local]
-^https:\/\/spclient\.wg\.spotify\.com\/bootstrap\/v1\/bootstrap url script-response-body https://raw.githubusercontent.com/fmwgz8n4hr-dotcom/Qx@main/spotify.js
-^https:\/\/spclient\.wg\.spotify\.com\/user-customization-service\/v1\/customize url script-response-body https://raw.githubusercontent.com/fmwgz8n4hr-dotcom/Qx@main/spotify.js
+^https:\/\/spclient\.wg\.spotify\.com\/bootstrap\/v1\/bootstrap url script-response-body https://raw.githubusercontent.com/fmwgz8n4hr-dotcom/Qx/main/spotify.js
+^https:\/\/spclient\.wg\.spotify\.com\/user-customization-service\/v1\/customize url script-response-body https://raw.githubusercontent.com/fmwgz8n4hr-dotcom/Qx/main/spotify.js
