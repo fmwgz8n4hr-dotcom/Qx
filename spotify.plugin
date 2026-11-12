@@ -1,0 +1,10 @@
+#!name=Spotify Premium 解锁（自用修复版）
+#!desc=修复了请求挂起及二进制解析异常
+#!author=YourName
+
+[mitm]
+hostname = spclient.wg.spotify.com
+
+[rewrite_local]
+^https:\/\/spclient\.wg\.spotify\.com\/bootstrap\/v1\/bootstrap url script-response-body https://raw.githubusercontent.com/fmwgz8n4hr-dotcom/Qx@main/spotify.js
+^https:\/\/spclient\.wg\.spotify\.com\/user-customization-service\/v1\/customize url script-response-body https://raw.githubusercontent.com/fmwgz8n4hr-dotcom/Qx@main/spotify.js
