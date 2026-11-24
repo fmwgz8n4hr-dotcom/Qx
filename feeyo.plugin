@@ -1,0 +1,10 @@
+#!name=飞常准 会员
+#!desc=改写 isVip / memberLevel / proPlusStatus / 到期时间，解锁会员界面门禁。配合 feeyo_vip.js 使用。
+
+[mitm]
+hostname = app.variflight.com, *.variflight.com, *.variflight.cn, *.feeyo.com, *.feeyo.cn, *.veryzhun.com, *.veryzhun.cn
+
+[rewrite_local]
+^https?:\/\/[^\/]*variflight\.(com|cn)\/v[0-9]+\/ url script-response-body https://raw.githubusercontent.com/fmwgz8n4hr-dotcom/Qx/main/feeyo_vip.js
+^https?:\/\/[^\/]*(feeyo|veryzhun)\.(com|cn)\/v[0-9]+\/ url script-response-body https://raw.githubusercontent.com/fmwgz8n4hr-dotcom/Qx/main/feeyo_vip.js
+^https?:\/\/[^\/]*variflight\.(com|cn)\/(api|user|member|vip|pay|order)\/ url script-response-body https://raw.githubusercontent.com/fmwgz8n4hr-dotcom/Qx/main/feeyo_vip.js

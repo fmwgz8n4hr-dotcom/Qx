@@ -1,0 +1,17 @@
+#!name=飞常准 会员（静态版）
+#!desc=不依赖脚本的单文件版：直接用文本替换改会员字段。只对紧凑 JSON 生效。
+
+[mitm]
+hostname = app.variflight.com, *.variflight.com, *.variflight.cn, *.feeyo.com, *.feeyo.cn, *.veryzhun.com, *.veryzhun.cn
+
+[rewrite_local]
+^https?:\/\/[^\/]*variflight\.(com|cn)\/v[0-9]+\/ url response-body "isVip":false "isVip":true
+^https?:\/\/[^\/]*variflight\.(com|cn)\/v[0-9]+\/ url response-body "isVip":0 "isVip":1
+^https?:\/\/[^\/]*variflight\.(com|cn)\/v[0-9]+\/ url response-body "is_vip":0 "is_vip":1
+^https?:\/\/[^\/]*variflight\.(com|cn)\/v[0-9]+\/ url response-body "isPro":0 "isPro":1
+^https?:\/\/[^\/]*variflight\.(com|cn)\/v[0-9]+\/ url response-body "isMember":0 "isMember":1
+^https?:\/\/[^\/]*variflight\.(com|cn)\/v[0-9]+\/ url response-body "memberLevel":0 "memberLevel":1
+^https?:\/\/[^\/]*variflight\.(com|cn)\/v[0-9]+\/ url response-body "vipLevel":0 "vipLevel":1
+^https?:\/\/[^\/]*variflight\.(com|cn)\/v[0-9]+\/ url response-body "proPlusStatus":0 "proPlusStatus":1
+^https?:\/\/[^\/]*(feeyo|veryzhun)\.(com|cn)\/v[0-9]+\/ url response-body "isVip":0 "isVip":1
+^https?:\/\/[^\/]*(feeyo|veryzhun)\.(com|cn)\/v[0-9]+\/ url response-body "memberLevel":0 "memberLevel":1
