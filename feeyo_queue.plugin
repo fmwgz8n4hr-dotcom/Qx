@@ -7,7 +7,7 @@ hostname = app.variflight.com, *.variflight.com
 [rewrite_local]
 
 # 1) 排队页：用缓存数据补全天列表
-^https?:\/\/app\.variflight\.com\/airport\/(in|out)queuev5 url script-response-body https://ghproxy.net/https://raw.githubusercontent.com/fmwgz8n4hr-dotcom/Qx/main/feeyo_queue.js
+^https?:\/\/app\.variflight\.com\/airport\/(in|out)queuev5 url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@839152f0276999e68944eb3a448245479f372ad1/feeyo_queue.js
 
 # 2) 机场 / 航班接口：被动缓存 + 密文诊断
-^https?:\/\/app\.variflight\.com\/(airport|v4\/airport|v4\/flight|flight)\/ url script-response-body https://ghproxy.net/https://raw.githubusercontent.com/fmwgz8n4hr-dotcom/Qx/main/feeyo_queue.js
+^https?:\/\/app\.variflight\.com\/(airport|v4\/airport|v4\/flight|flight)\/ url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@839152f0276999e68944eb3a448245479f372ad1/feeyo_queue.js
