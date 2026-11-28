@@ -3,16 +3,14 @@
  * ---------------------------------------------------------------
  * 原理：
  *   排队页 /airport/inqueuev5 的 list / prolist 由服务端按账号裁成 3 小时窗口，
- *   本地改不了。但 App 里「机场 → 航班动态 / 大屏」那些接口是免费的、
- *   返回的是全天进出港航班，而且它就在同一台手机上被真实请求过。
+ *   本地改不了。但 App 里「机场」相关接口返回的是更长的航班数据，
+ *   而且它就在同一台手机上被真实请求过。
  *
- *   所以这个脚本做两件事：
+ *   脚本做两件事：
  *     1) 被动缓存：App 请求任何 airport / flight 接口，把响应存进 QX 本地
  *     2) 排队页改写：把缓存里的当天航班重排成排队页要的结构，填回 list / prolist
  *
- *   数据全部来自 App 自身已获授权的接口，不伪造、不外连。
- * ---------------------------------------------------------------
- * 兼容：Quantumult X 1.x
+ * --- v2：加入密文接口诊断（ct / len / head-hex / qs / hdr）---
  */
 
 var CACHE_KEY = 'feeyo_q_cache_v1';
@@ -29,7 +27,7 @@ function loadCache() {
 function saveCache(c) {
   try {
     var s = JSON.stringify(c);
-    if (s.length > 900000) return;   // 保险丝，别撑爆持久化
+    if (s.length > 900000) return;
     $prefs.setValueForKey(s, CACHE_KEY);
   } catch (e) {}
 }
@@ -182,7 +180,6 @@ function buildFromCache(cache, airportCode) {
     var e = cache[k];
     if (!e || !e.body) continue;
     if (e.kind === 'raw') continue;
-    // 机场要匹配；缓存里没记机场的就当通配
     if (airportCode && e.airport && e.airport.toUpperCase() !== airportCode.toUpperCase()) continue;
     if (!best || e.ts > best.ts) best = e;
   }
@@ -195,7 +192,6 @@ function buildFromCache(cache, airportCode) {
   collectFlightArrays(j, '', 0, arrs);
   if (!arrs.length) return null;
 
-  // 合并所有航班数组（进出港可能分在不同字段里）
   var items = [];
   var seen = {};
   for (var ai = 0; ai < arrs.length; ai++) {
@@ -211,7 +207,6 @@ function buildFromCache(cache, airportCode) {
   }
   if (!items.length) return null;
 
-  // 按到达时间排序
   items.sort(function (a, b) {
     var x = a.arrEst === '--:--' ? '99:99' : a.arrEst;
     var y = b.arrEst === '--:--' ? '99:99' : b.arrEst;
@@ -276,8 +271,33 @@ function buildFromCache(cache, airportCode) {
   try { probe = JSON.parse(body); parsed = true; } catch (e) { parsed = false; }
 
   if (!parsed) {
-    // 密文接口：留一份样本，便于确认加密格式
     var raw = body.trim();
+
+    // ---- 诊断：密文接口的元信息，够判断加密方式 ----
+    try {
+      var hdrs = ($response && $response.headers) || {};
+      var hnames = [];
+      for (var hn in hdrs) hnames.push(hn);
+      var ct = '';
+      for (var hi = 0; hi < hnames.length; hi++) {
+        if (/content-type/i.test(hnames[hi])) ct = hdrs[hnames[hi]];
+      }
+      var hex = '';
+      var lim = Math.min(128, raw.length);
+      for (var bi = 0; bi < lim; bi++) {
+        var cp = raw.charCodeAt(bi) & 0xff;
+        hex += (cp < 16 ? '0' : '') + cp.toString(16);
+      }
+      var dpath = url.split('?')[0].replace(/^https?:\/\/[^/]+/, '');
+      var qs = (url.split('?')[1] || '').split('&').map(function (kv) { return kv.split('=')[0]; }).join(',');
+      console.log('[diag] path=' + dpath);
+      console.log('[diag] ct=' + ct + ' len=' + raw.length + ' enc=' + (/^[A-Za-z0-9+/=]+$/.test(raw) ? 'base64ish' : 'binaryish'));
+      console.log('[diag] qs=' + qs);
+      console.log('[diag] hdr=' + hnames.join(','));
+      console.log('[diag] head=' + hex);
+      console.log('[diag] pre=' + raw.slice(0, 48).replace(/[^\x20-\x7e]/g, '.'));
+    } catch (e) {}
+
     var looksEnc = /^[A-Za-z0-9+/=\s]{64,}$/.test(raw) || /^[0-9a-fA-F]{64,}$/.test(raw);
     if (looksEnc) {
       var cc = loadCache();
