@@ -1,10 +1,7 @@
 /*
- * 飞常准 · 机场进港排队「全天」补全  v3
- * ---------------------------------------------------------------
- * v3 关键修复：
- *   QX 对非文本响应会把 body 以 base64 形式交给脚本。
- *   v2 直接把 base64 当密文丢弃，导致机场接口全部「解不出」。
- *   v3 先 base64 解码再 JSON.parse，能解就直接用。
+ * 飞常准 · 机场进港排队「全天」补全  v4
+ * v3：QX 对非文本响应会把 body 以 base64 交给脚本，补上 base64 解码。
+ * v4：密文接口额外打印 b64head，用来区分 明文JSON / gzip / 真AES密文。
  */
 
 var CACHE_KEY = 'feeyo_q_cache_v1';
@@ -50,7 +47,6 @@ function bytesToUtf8(b) {
   return out;
 }
 
-// 返回 {obj, text, via} 或 null
 function decodeJson(raw) {
   if (!raw) return null;
   try { return { obj: JSON.parse(raw), text: raw, via: 'plain' }; } catch (e) {}
@@ -288,7 +284,7 @@ function buildFromCache(cache, airportCode) {
 
     var built = buildFromCache(loadCache(), airport);
     if (!built) {
-      console.log('[feeyo_queue v3] no cache for ' + airport + ' -> passthrough');
+      console.log('[feeyo_queue v4] no cache for ' + airport + ' -> passthrough');
       $done({ body: body });
       return;
     }
@@ -313,7 +309,7 @@ function buildFromCache(cache, airportCode) {
       holder.proplus = { status: 1 };
     }
 
-    console.log('[feeyo_queue v3] ' + airport + ' filled ' + built.items.length +
+    console.log('[feeyo_queue v4] ' + airport + ' filled ' + built.items.length +
                 ' flights from ' + built.from + ' (via ' + dec.via + ')');
     $done({ body: JSON.stringify(obj), headers: $response.headers });
     return;
@@ -340,6 +336,13 @@ function buildFromCache(cache, airportCode) {
       var dpath = url.split('?')[0].replace(/^https?:\/\/[^/]+/, '');
       console.log('[diag] ' + dpath + ' ct=' + ct + ' len=' + body.length + ' b64len=' + b64BytesLen(body));
       console.log('[diag] head=' + hex);
+
+      var bts = b64ToBytes(body);
+      if (bts && bts.length) {
+        var t2 = bytesToUtf8(bts);
+        var seenTxt = t2.slice(0, 90).replace(/[^\x20-\x7e]/g, '.');
+        console.log('[diag] b64head=' + seenTxt + ' | bytes=' + bts.length);
+      }
     } catch (e) {}
 
     var cc0 = loadCache();
@@ -379,7 +382,7 @@ function buildFromCache(cache, airportCode) {
     };
     saveCache(c);
 
-    console.log('[feeyo_queue v3] cached ' + key + ' (' + found[0].arr.length + ' flights, via ' + dec.via + ', apt=' + qAirport + ')');
+    console.log('[feeyo_queue v4] cached ' + key + ' (' + found[0].arr.length + ' flights, via ' + dec.via + ', apt=' + qAirport + ')');
   }
 
   $done({ body: body });
