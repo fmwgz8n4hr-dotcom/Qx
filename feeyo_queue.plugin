@@ -1,5 +1,5 @@
 #!name=飞常准 进港排队全天
-#!desc=用 App 自身已获授权的航班接口数据填充机场进港排队页。用法：先开一次「机场」页翻两下，再进排队页。
+#!desc=用 App 自身已获授权的航班接口数据填充机场进港排队页，解除 3 小时窗口。用法：先开一次「机场」页翻两下，再进排队页。
 
 [mitm]
 hostname = app.variflight.com, *.variflight.com
@@ -7,7 +7,7 @@ hostname = app.variflight.com, *.variflight.com
 [rewrite_local]
 
 # 1) 排队页：用缓存数据补全天列表
-^https?:\/\/app\.variflight\.com\/airport\/(in|out)queuev5 url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@839152f0276999e68944eb3a448245479f372ad1/feeyo_queue.js
+^https?:\/\/app\.variflight\.com\/airport\/(in|out)queuev5 url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@43cee5f4bfc90a886225c879b7937261a1002784/feeyo_queue.js
 
-# 2) 机场 / 航班接口：被动缓存 + 密文诊断
-^https?:\/\/app\.variflight\.com\/(airport|v4\/airport|v4\/flight|flight)\/ url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@839152f0276999e68944eb3a448245479f372ad1/feeyo_queue.js
+# 2) 机场 / 航班接口：被动缓存当天航班
+^https?:\/\/app\.variflight\.com\/(airport|v4\/airport|v4\/flight|flight)\/ url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@43cee5f4bfc90a886225c879b7937261a1002784/feeyo_queue.js
