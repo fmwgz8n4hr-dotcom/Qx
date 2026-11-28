@@ -1,12 +1,119 @@
 /*
- * 飞常准 · 机场进港排队「全天」补全  v8
- * v3 base64解码 / v4 b64head / v5 配置接口 / v6 请求头 / v7 请求体
- * v8：明文响应里若含 key/secret/aes 等字段，单独打印（首次启动的下发点）
+ * 飞常准 · 机场进港排队「全天」补全  v9
+ * ---------------------------------------------------------------
+ * 已破出全站加密：AES-128-ECB，key = ce77c4ff557fb4b1
+ * （来自 VZNetworkConfig.cryptKey，CCCrypt options=3）
+ *
+ * 于是所有接口（含 overviewv6 / screenList / quantizeScreenList）
+ * 的响应都能在本地解开，航班数据全部可读。
+ *
+ * 排队页 inqueuev5 的 3 小时窗口由服务端裁剪，本地改不了；
+ * 但把它换成解密后拿到的全天航班即可。
  */
 
-var CACHE_KEY = 'feeyo_q_cache_v1';
-var MAX_PER   = 60000;
+var AES_KEY = 'ce77c4ff557fb4b1';
+var CACHE_KEY = 'feeyo_q_cache_v2';
+var MAX_PER   = 200000;
 var MAX_ITEMS = 12;
+
+/* ---------------- AES-128-ECB ---------------- */
+
+var SBOX = (function (s) {
+  var a = [];
+  for (var i = 0; i < 256; i++) a.push(parseInt(s.substr(i * 2, 2), 16));
+  return a;
+})('637c777bf26b6fc53001672bfed7ab76ca82c97dfa5947f0add4a2af9ca472c0' +
+   'b7fd9326363ff7cc34a5e5f171d8311504c723c31896059a071280e2eb27b275' +
+   '09832c1a1b6e5aa0523bd6b329e32f8453d100ed20fcb15b6acbbe394a4c58cf' +
+   'd0efaafb434d338545f9027f503c9fa851a3408f929d38f5bcb6da2110fff3d2' +
+   'cd0c13ec5f974417c4a77e3d645d197360814fdc222a908846eeb814de5e0bdb' +
+   'e0323a0a4906245cc2d3ac629195e479e7c8376d8dd54ea96c56f4ea657aae08' +
+   'ba78252e1ca6b4c6e8dd741f4bbd8b8a703eb5664803f60e613557b986c11d9e' +
+   'e1f8981169d98e949b1e87e9ce5528df8ca1890dbfe6426841992d0fb054bb16');
+
+var INV = new Array(256);
+(function () { for (var i = 0; i < 256; i++) INV[SBOX[i]] = i; })();
+var RCON = [0, 1, 2, 4, 8, 16, 32, 64, 128, 27, 54];
+
+var M9 = new Array(256), M11 = new Array(256), M13 = new Array(256), M14 = new Array(256);
+(function () {
+  function xt(a) { return ((a << 1) ^ ((a & 0x80) ? 0x1b : 0)) & 0xff; }
+  function gm(a, b) { var p = 0; while (b) { if (b & 1) p ^= a; a = xt(a); b >>= 1; } return p & 0xff; }
+  for (var i = 0; i < 256; i++) { M9[i] = gm(i, 9); M11[i] = gm(i, 11); M13[i] = gm(i, 13); M14[i] = gm(i, 14); }
+})();
+
+function aesExpand(key) {
+  var w = [], i;
+  for (i = 0; i < 4; i++) w.push([key[i * 4], key[i * 4 + 1], key[i * 4 + 2], key[i * 4 + 3]]);
+  for (i = 4; i < 44; i++) {
+    var t = [w[i - 1][0], w[i - 1][1], w[i - 1][2], w[i - 1][3]];
+    if (i % 4 === 0) {
+      var x = t[0];
+      t[0] = SBOX[t[1]] ^ RCON[i >> 2];
+      t[1] = SBOX[t[2]];
+      t[2] = SBOX[t[3]];
+      t[3] = SBOX[x];
+    }
+    w.push([w[i - 4][0] ^ t[0], w[i - 4][1] ^ t[1], w[i - 4][2] ^ t[2], w[i - 4][3] ^ t[3]]);
+  }
+  return w;
+}
+
+function aesDecBlock(inp, w) {
+  var s = new Array(16), r, c, k;
+  for (c = 0; c < 4; c++) for (r = 0; r < 4; r++) s[c * 4 + r] = inp[r + 4 * c];
+
+  function ark(rnd) { for (var cc = 0; cc < 4; cc++) for (var rr = 0; rr < 4; rr++) s[cc * 4 + rr] ^= w[rnd * 4 + cc][rr]; }
+
+  ark(10);
+  for (var rnd = 9; rnd >= 1; rnd--) {
+    for (r = 1; r < 4; r++) {
+      var row = [s[0 * 4 + r], s[1 * 4 + r], s[2 * 4 + r], s[3 * 4 + r]];
+      for (c = 0; c < 4; c++) s[c * 4 + r] = row[(c - r + 4) % 4];
+    }
+    for (k = 0; k < 16; k++) s[k] = INV[s[k]];
+    ark(rnd);
+    for (c = 0; c < 4; c++) {
+      var a0 = s[c * 4], a1 = s[c * 4 + 1], a2 = s[c * 4 + 2], a3 = s[c * 4 + 3];
+      s[c * 4]     = (M14[a0] ^ M11[a1] ^ M13[a2] ^ M9[a3]) & 0xff;
+      s[c * 4 + 1] = (M9[a0]  ^ M14[a1] ^ M11[a2] ^ M13[a3]) & 0xff;
+      s[c * 4 + 2] = (M13[a0] ^ M9[a1]  ^ M14[a2] ^ M11[a3]) & 0xff;
+      s[c * 4 + 3] = (M11[a0] ^ M13[a1] ^ M9[a2]  ^ M14[a3]) & 0xff;
+    }
+  }
+  for (r = 1; r < 4; r++) {
+    var row2 = [s[0 * 4 + r], s[1 * 4 + r], s[2 * 4 + r], s[3 * 4 + r]];
+    for (c = 0; c < 4; c++) s[c * 4 + r] = row2[(c - r + 4) % 4];
+  }
+  for (k = 0; k < 16; k++) s[k] = INV[s[k]];
+  ark(0);
+
+  var out = new Array(16);
+  for (c = 0; c < 4; c++) for (r = 0; r < 4; r++) out[r + 4 * c] = s[c * 4 + r];
+  return out;
+}
+
+function aesDecryptECB(data, keyStr) {
+  var key = [];
+  for (var i = 0; i < 16; i++) key.push(keyStr.charCodeAt(i) & 0xff);
+  var w = aesExpand(key);
+  var out = [];
+  for (var off = 0; off + 16 <= data.length; off += 16) {
+    var pt = aesDecBlock(data.slice(off, off + 16), w);
+    for (var j = 0; j < 16; j++) out.push(pt[j]);
+  }
+  if (out.length) {
+    var p = out[out.length - 1];
+    if (p >= 1 && p <= 16 && out.length >= p) {
+      var ok = true;
+      for (var q = out.length - p; q < out.length; q++) if (out[q] !== p) { ok = false; break; }
+      if (ok) out = out.slice(0, out.length - p);
+    }
+  }
+  return out;
+}
+
+/* ---------------- 编解码 ---------------- */
 
 function b64ToBytes(s) {
   var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -22,7 +129,7 @@ function b64ToBytes(s) {
     buf = (buf << 6) | v;
     bits += 6;
     if (bits >= 8) { bits -= 8; out.push((buf >> bits) & 0xff); }
-    if (out.length > 4000000) break;
+    if (out.length > 6000000) break;
   }
   return out;
 }
@@ -48,20 +155,26 @@ function bytesToUtf8(b) {
 function decodeJson(raw) {
   if (!raw) return null;
   try { return { obj: JSON.parse(raw), text: raw, via: 'plain' }; } catch (e) {}
+
   var b = b64ToBytes(raw);
-  if (b && b.length > 1) {
+  if (!b || !b.length) return null;
+
+  try {
+    var t = bytesToUtf8(b);
+    return { obj: JSON.parse(t), text: t, via: 'base64' };
+  } catch (e) {}
+
+  if (b.length % 16 === 0) {
     try {
-      var t = bytesToUtf8(b);
-      return { obj: JSON.parse(t), text: t, via: 'base64' };
+      var pt = aesDecryptECB(b, AES_KEY);
+      var t2 = bytesToUtf8(pt);
+      return { obj: JSON.parse(t2), text: t2, via: 'aes' };
     } catch (e) {}
   }
   return null;
 }
 
-function b64BytesLen(raw) {
-  var b = b64ToBytes(raw);
-  return b ? b.length : -1;
-}
+/* ---------------- 缓存 ---------------- */
 
 function loadCache() {
   try { return JSON.parse($prefs.valueForKey(CACHE_KEY) || '{}'); }
@@ -71,7 +184,7 @@ function loadCache() {
 function saveCache(c) {
   try {
     var s = JSON.stringify(c);
-    if (s.length > 900000) return;
+    if (s.length > 1500000) return;
     $prefs.setValueForKey(s, CACHE_KEY);
   } catch (e) {}
 }
@@ -80,6 +193,8 @@ function urlParam(url, name) {
   var m = url.match(new RegExp('[?&]' + name + '=([^&#]*)'));
   return m ? decodeURIComponent(m[1]) : '';
 }
+
+/* ---------------- 航班识别 ---------------- */
 
 function lowerKeys(o) {
   var out = {};
@@ -102,7 +217,7 @@ function isFlightObj(o) {
 }
 
 function collectFlightArrays(node, path, depth, out) {
-  if (depth > 9 || node === null || typeof node !== 'object') return;
+  if (depth > 10 || node === null || typeof node !== 'object') return;
   if (Array.isArray(node)) {
     if (node.length && isFlightObj(node[0])) out.push({ path: path, arr: node });
     var lim = Math.min(node.length, 3);
@@ -114,6 +229,8 @@ function collectFlightArrays(node, path, depth, out) {
     collectFlightArrays(node[k], path ? path + '.' + k : k, depth + 1, out);
   }
 }
+
+/* ---------------- 字段映射 ---------------- */
 
 function pick(o, names) {
   var lk = lowerKeys(o);
@@ -211,12 +328,12 @@ function toQueueItem(f, airportCode) {
 }
 
 function buildFromCache(cache, airportCode) {
-  var bestItems = null, bestFrom = null, bestTs = 0;
+  var bestItems = null, bestFrom = null;
 
   for (var k in cache) {
     if (!Object.prototype.hasOwnProperty.call(cache, k)) continue;
     var e = cache[k];
-    if (!e || !e.body || e.kind === 'raw') continue;
+    if (!e || !e.body) continue;
     if (airportCode && e.airport && e.airport.toUpperCase() !== airportCode.toUpperCase()) continue;
 
     var j;
@@ -242,7 +359,6 @@ function buildFromCache(cache, airportCode) {
     if (items.length && (!bestItems || items.length > bestItems.length)) {
       bestItems = items;
       bestFrom = e.url || k;
-      bestTs = e.ts || 0;
     }
   }
 
@@ -254,39 +370,36 @@ function buildFromCache(cache, airportCode) {
     return x < y ? -1 : (x > y ? 1 : 0);
   });
 
-  return { items: bestItems, from: bestFrom, ts: bestTs };
+  return { items: bestItems, from: bestFrom };
 }
+
+/* ---------------- 主逻辑 ---------------- */
 
 (function () {
 
   var url = ($request && $request.url) ? $request.url : '';
 
-  // ===== 请求阶段：打印请求体 =====
-  if (!$response) {
-    var rbody = ($request && $request.body) ? String($request.body) : '';
-    if (rbody) {
-      var dp0 = url.split('?')[0].replace(/^https?:\/\/[^/]+/, '');
-      console.log('[body] ' + dp0 + ' [' + rbody.length + '] ' + rbody.slice(0, 900));
-    }
-    $done({});
-    return;
-  }
+  if (!$response) { $done({}); return; }
 
   var body = ($response && typeof $response.body === 'string') ? $response.body : '';
-
   if (!body) { $done({}); return; }
 
   var dec = decodeJson(body);
+  var dpath = url.split('?')[0].replace(/^https?:\/\/[^/]+/, '');
+  var qAirport = urlParam(url, 'airport') || urlParam(url, 'airportCode') || urlParam(url, 'apt') || urlParam(url, 'code') || urlParam(url, 'arr');
 
   /* --- A. 排队页：改写 --- */
   if (/\/airport\/(in|out)queuev5/.test(url)) {
-    var airport = urlParam(url, 'airport');
 
-    if (!dec) { $done({ body: body }); return; }
+    if (!dec) {
+      console.log('[feeyo v9] queue not decodable');
+      $done({ body: body });
+      return;
+    }
 
-    var built = buildFromCache(loadCache(), airport);
+    var built = buildFromCache(loadCache(), qAirport);
     if (!built) {
-      console.log('[feeyo_queue v8] no cache for ' + airport + ' -> passthrough');
+      console.log('[feeyo v9] no cache for ' + qAirport + ' -> passthrough');
       $done({ body: body });
       return;
     }
@@ -311,78 +424,24 @@ function buildFromCache(cache, airportCode) {
       holder.proplus = { status: 1 };
     }
 
-    console.log('[feeyo_queue v8] ' + airport + ' filled ' + built.items.length +
-                ' flights from ' + built.from + ' (via ' + dec.via + ')');
+    console.log('[feeyo v9] ' + qAirport + ' filled ' + built.items.length + ' flights from ' + built.from);
     $done({ body: JSON.stringify(obj), headers: $response.headers });
     return;
   }
 
-  /* --- B. 其它接口 --- */
-  var qAirport = urlParam(url, 'airport') || urlParam(url, 'airportCode') || urlParam(url, 'apt') || urlParam(url, 'code') || urlParam(url, 'dep') || urlParam(url, 'arr');
-
+  /* --- B. 其它接口：解密后缓存 --- */
   if (!dec) {
-    try {
-      var hdrs = ($response && $response.headers) || {};
-      var hnames = [];
-      for (var hn in hdrs) hnames.push(hn);
-      var ct = '';
-      for (var hi = 0; hi < hnames.length; hi++) {
-        if (/content-type/i.test(hnames[hi])) ct = hdrs[hnames[hi]];
-      }
-      var hex = '';
-      var lim = Math.min(64, body.length);
-      for (var bi = 0; bi < lim; bi++) {
-        var cp = body.charCodeAt(bi) & 0xff;
-        hex += (cp < 16 ? '0' : '') + cp.toString(16);
-      }
-      var dpath = url.split('?')[0].replace(/^https?:\/\/[^/]+/, '');
-      console.log('[diag] ' + dpath + ' ct=' + ct + ' len=' + body.length + ' b64len=' + b64BytesLen(body));
-      console.log('[diag] head=' + hex);
-
-      var bts = b64ToBytes(body);
-      if (bts && bts.length) {
-        var t2 = bytesToUtf8(bts);
-        var seenTxt = t2.slice(0, 90).replace(/[^\x20-\x7e]/g, '.');
-        console.log('[diag] b64head=' + seenTxt + ' | bytes=' + bts.length);
-      }
-
-      if (/config|init|secret|setting|appinfo|startup|sdk_config/i.test(dpath)) {
-        var pre = body.slice(0, 1200).replace(/[\r\n\t]+/g, ' ');
-        console.log('[cfg] ' + dpath + ' [' + body.length + '] ' + pre);
-      }
-
-      var rh = ($request && $request.headers) || {};
-      var rhStr = '';
-      for (var rk in rh) {
-        if (!Object.prototype.hasOwnProperty.call(rh, rk)) continue;
-        rhStr += rk + '=' + String(rh[rk]).slice(0, 80) + ' | ';
-      }
-      console.log('[req] ' + url.slice(0, 320));
-      console.log('[reqh] ' + rhStr.slice(0, 1000));
-    } catch (e) {}
-
-    var cc0 = loadCache();
-    var rk2 = 'RAW_' + url.split('?')[0].replace(/^https?:\/\/[^/]+/, '').replace(/[^A-Za-z0-9_]/g, '_');
-    cc0[rk2] = { url: url.split('?')[0], airport: qAirport, ts: Date.now(), kind: 'raw', body: body.slice(0, 4000) };
-    saveCache(cc0);
+    console.log('[feeyo v9] undecoded ' + dpath + ' len=' + body.length);
     $done({ body: body });
     return;
   }
-
-  // 明文响应里若出现 key 类字段，单独打出来（首次启动的下发点）
-  try {
-    var dpt = url.split('?')[0].replace(/^https?:\/\/[^/]+/, '');
-    if (/appkey|appsecret|secret|aeskey|aes_key|encryptkey|signkey|privatekey|bootstrap|license|initkey/i.test(dec.text)) {
-      console.log('[KEY?] ' + dpt + ' [' + dec.text.length + '] ' + dec.text.slice(0, 1400));
-    }
-  } catch (e) {}
 
   var found = [];
   collectFlightArrays(dec.obj, '', 0, found);
 
   if (found.length) {
     var c = loadCache();
-    var key = url.split('?')[0].replace(/^https?:\/\/[^/]+/, '').replace(/[^A-Za-z0-9_]/g, '_');
+    var key = dpath.replace(/[^A-Za-z0-9_]/g, '_');
     var total = 0;
     for (var kk in c) if (Object.prototype.hasOwnProperty.call(c, kk)) total++;
 
@@ -398,10 +457,10 @@ function buildFromCache(cache, airportCode) {
     var text = dec.text;
     if (text.length > MAX_PER) text = text.slice(0, MAX_PER);
 
-    c[key] = { url: url.split('?')[0], airport: qAirport, ts: Date.now(), body: text };
+    c[key] = { url: dpath, airport: qAirport, ts: Date.now(), body: text };
     saveCache(c);
 
-    console.log('[feeyo_queue v8] cached ' + key + ' (' + found[0].arr.length + ' flights, via ' + dec.via + ', apt=' + qAirport + ')');
+    console.log('[feeyo v9] cached ' + key + ' (' + found[0].arr.length + ' flights, via ' + dec.via + ', apt=' + qAirport + ')');
   }
 
   $done({ body: body });
