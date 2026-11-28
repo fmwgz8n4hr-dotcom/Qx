@@ -1,16 +1,13 @@
 #!name=飞常准 进港排队全天
-#!desc=用 App 自身已获授权的航班接口数据填充机场进港排队页。用法：杀掉 App 重开，先开一次「机场」页翻两下，再进排队页。
+#!desc=内置解密，把机场接口的全天航班填进排队页。用法：打开「机场」页翻两下（缓存航班），再进排队页。
 
 [mitm]
 hostname = *.variflight.com, variflight.com
 
 [rewrite_local]
 
-# 请求阶段：打印 POST 请求体（key / sign 在这里）
-^https?:\/\/[a-z0-9.-]*variflight\.com\/(v[0-9]+\/|airport|flight|api) url script-request-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@dccb79f6527030396eeb1d64c297cba8fdf2c5c3/feeyo_queue.js
+# 排队页：用解密后的全天航班填充
+^https?:\/\/[a-z0-9.-]*variflight\.com\/airport\/(in|out)queuev5 url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@29a07d157f0f5082b9ccf7d0ba397dc216dad786/feeyo_queue.js
 
-# 响应阶段：排队页改写 + 航班数据缓存 + 密文诊断
-^https?:\/\/[a-z0-9.-]*variflight\.com\/(v[0-9]+\/|airport|flight|api) url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@dccb79f6527030396eeb1d64c297cba8fdf2c5c3/feeyo_queue.js
-
-# 兜底：任何域名下路径带 config 的请求
-^https?:\/\/[a-z0-9.-]*variflight\.com\/[^?]*[Cc]onfig url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@dccb79f6527030396eeb1d64c297cba8fdf2c5c3/feeyo_queue.js
+# 全域名接口：AES 解密 + 航班数据缓存
+^https?:\/\/[a-z0-9.-]*variflight\.com\/(v[0-9]+\/|airport|flight) url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@29a07d157f0f5082b9ccf7d0ba397dc216dad786/feeyo_queue.js
