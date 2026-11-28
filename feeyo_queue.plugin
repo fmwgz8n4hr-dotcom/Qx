@@ -6,11 +6,11 @@ hostname = *.variflight.com, variflight.com
 
 [rewrite_local]
 
-# 1) 排队页：用缓存数据补全天列表
-^https?:\/\/[a-z0-9.-]*variflight\.com\/airport\/(in|out)queuev5 url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@f22d16bf5178dd70ce5ea485ac54bbb279286bcd/feeyo_queue.js
+# 请求阶段：打印 POST 请求体（key / sign 在这里）
+^https?:\/\/[a-z0-9.-]*variflight\.com\/(v[0-9]+\/|airport|flight|api) url script-request-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@dccb79f6527030396eeb1d64c297cba8fdf2c5c3/feeyo_queue.js
 
-# 2) 全域名接口：机场 / 航班数据缓存 + 配置接口与请求头诊断
-^https?:\/\/[a-z0-9.-]*variflight\.com\/(v[0-9]+\/|airport|flight|api) url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@f22d16bf5178dd70ce5ea485ac54bbb279286bcd/feeyo_queue.js
+# 响应阶段：排队页改写 + 航班数据缓存 + 密文诊断
+^https?:\/\/[a-z0-9.-]*variflight\.com\/(v[0-9]+\/|airport|flight|api) url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@dccb79f6527030396eeb1d64c297cba8fdf2c5c3/feeyo_queue.js
 
-# 3) 兜底：任何域名下路径里带 config 的请求
-^https?:\/\/[a-z0-9.-]*variflight\.com\/[^?]*[Cc]onfig url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@f22d16bf5178dd70ce5ea485ac54bbb279286bcd/feeyo_queue.js
+# 兜底：任何域名下路径带 config 的请求
+^https?:\/\/[a-z0-9.-]*variflight\.com\/[^?]*[Cc]onfig url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@dccb79f6527030396eeb1d64c297cba8fdf2c5c3/feeyo_queue.js
