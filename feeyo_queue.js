@@ -1,7 +1,8 @@
 /*
- * 飞常准 · 机场进港排队「全天」补全  v4
- * v3：QX 对非文本响应会把 body 以 base64 交给脚本，补上 base64 解码。
- * v4：密文接口额外打印 b64head，用来区分 明文JSON / gzip / 真AES密文。
+ * 飞常准 · 机场进港排队「全天」补全  v5
+ * v3：QX 对非文本响应会把 body 以 base64 交给脚本 -> 补 base64 解码
+ * v4：密文接口打印 b64head，区分 明文JSON / gzip / 真AES
+ * v5：扩大拦截范围到所有 /vN/ 接口，并打印配置类接口（找 AES key 下发处）
  */
 
 var CACHE_KEY = 'feeyo_q_cache_v1';
@@ -284,7 +285,7 @@ function buildFromCache(cache, airportCode) {
 
     var built = buildFromCache(loadCache(), airport);
     if (!built) {
-      console.log('[feeyo_queue v4] no cache for ' + airport + ' -> passthrough');
+      console.log('[feeyo_queue v5] no cache for ' + airport + ' -> passthrough');
       $done({ body: body });
       return;
     }
@@ -309,7 +310,7 @@ function buildFromCache(cache, airportCode) {
       holder.proplus = { status: 1 };
     }
 
-    console.log('[feeyo_queue v4] ' + airport + ' filled ' + built.items.length +
+    console.log('[feeyo_queue v5] ' + airport + ' filled ' + built.items.length +
                 ' flights from ' + built.from + ' (via ' + dec.via + ')');
     $done({ body: JSON.stringify(obj), headers: $response.headers });
     return;
@@ -342,6 +343,12 @@ function buildFromCache(cache, airportCode) {
         var t2 = bytesToUtf8(bts);
         var seenTxt = t2.slice(0, 90).replace(/[^\x20-\x7e]/g, '.');
         console.log('[diag] b64head=' + seenTxt + ' | bytes=' + bts.length);
+      }
+
+      // 配置类接口：可能就是 AES key 的下发处，整段打出来
+      if (/config|init|secret|setting|appinfo|startup/i.test(dpath)) {
+        var pre = body.slice(0, 1200).replace(/[\r\n\t]+/g, ' ');
+        console.log('[cfg] ' + dpath + ' [' + body.length + '] ' + pre);
       }
     } catch (e) {}
 
@@ -382,7 +389,7 @@ function buildFromCache(cache, airportCode) {
     };
     saveCache(c);
 
-    console.log('[feeyo_queue v4] cached ' + key + ' (' + found[0].arr.length + ' flights, via ' + dec.via + ', apt=' + qAirport + ')');
+    console.log('[feeyo_queue v5] cached ' + key + ' (' + found[0].arr.length + ' flights, via ' + dec.via + ', apt=' + qAirport + ')');
   }
 
   $done({ body: body });
