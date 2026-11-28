@@ -1,21 +1,73 @@
 /*
- * 飞常准 · 机场进港排队「全天」补全
+ * 飞常准 · 机场进港排队「全天」补全  v3
  * ---------------------------------------------------------------
- * 原理：
- *   排队页 /airport/inqueuev5 的 list / prolist 由服务端按账号裁成 3 小时窗口，
- *   本地改不了。但 App 里「机场」相关接口返回的是更长的航班数据，
- *   而且它就在同一台手机上被真实请求过。
- *
- *   脚本做两件事：
- *     1) 被动缓存：App 请求任何 airport / flight 接口，把响应存进 QX 本地
- *     2) 排队页改写：把缓存里的当天航班重排成排队页要的结构，填回 list / prolist
- *
- * --- v2：加入密文接口诊断（ct / len / head-hex / qs / hdr）---
+ * v3 关键修复：
+ *   QX 对非文本响应会把 body 以 base64 形式交给脚本。
+ *   v2 直接把 base64 当密文丢弃，导致机场接口全部「解不出」。
+ *   v3 先 base64 解码再 JSON.parse，能解就直接用。
  */
 
 var CACHE_KEY = 'feeyo_q_cache_v1';
-var MAX_PER   = 45000;   // 单个接口缓存上限（字节）
-var MAX_ITEMS = 10;      // 最多缓存几个接口
+var MAX_PER   = 60000;
+var MAX_ITEMS = 12;
+
+/* ---------------- 编解码 ---------------- */
+
+function b64ToBytes(s) {
+  var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  var map = {};
+  for (var i = 0; i < chars.length; i++) map[chars.charAt(i)] = i;
+  var t = String(s).replace(/[\s\r\n]+/g, '').replace(/-/g, '+').replace(/_/g, '/');
+  var out = [], buf = 0, bits = 0;
+  for (var j = 0; j < t.length; j++) {
+    var c = t.charAt(j);
+    if (c === '=') break;
+    var v = map[c];
+    if (v === undefined) return null;
+    buf = (buf << 6) | v;
+    bits += 6;
+    if (bits >= 8) { bits -= 8; out.push((buf >> bits) & 0xff); }
+    if (out.length > 4000000) break;
+  }
+  return out;
+}
+
+function bytesToUtf8(b) {
+  var out = '', i = 0;
+  while (i < b.length) {
+    var c = b[i++];
+    if (c < 0x80) { out += String.fromCharCode(c); }
+    else if (c < 0xE0) { out += String.fromCharCode(((c & 0x1F) << 6) | (b[i++] & 0x3F)); }
+    else if (c < 0xF0) {
+      var c2 = b[i++], c3 = b[i++];
+      out += String.fromCharCode(((c & 0x0F) << 12) | ((c2 & 0x3F) << 6) | (c3 & 0x3F));
+    } else {
+      var d2 = b[i++], d3 = b[i++], d4 = b[i++];
+      var cp = (((c & 0x07) << 18) | ((d2 & 0x3F) << 12) | ((d3 & 0x3F) << 6) | (d4 & 0x3F)) - 0x10000;
+      out += String.fromCharCode(0xD800 + (cp >> 10), 0xDC00 + (cp & 0x3FF));
+    }
+  }
+  return out;
+}
+
+// 返回 {obj, text, via} 或 null
+function decodeJson(raw) {
+  if (!raw) return null;
+  try { return { obj: JSON.parse(raw), text: raw, via: 'plain' }; } catch (e) {}
+  var b = b64ToBytes(raw);
+  if (b && b.length > 1) {
+    try {
+      var t = bytesToUtf8(b);
+      return { obj: JSON.parse(t), text: t, via: 'base64' };
+    } catch (e) {}
+  }
+  return null;
+}
+
+function b64BytesLen(raw) {
+  var b = b64ToBytes(raw);
+  return b ? b.length : -1;
+}
 
 /* ---------------- 缓存 ---------------- */
 
@@ -48,20 +100,19 @@ function lowerKeys(o) {
 function isFlightObj(o) {
   if (!o || typeof o !== 'object' || Array.isArray(o)) return false;
   var lk = Object.keys(lowerKeys(o));
-  var numKey = null;
+  var hasNum = false;
   for (var i = 0; i < lk.length; i++) {
-    if (/^(fnum|flightno|flight_no|flightnum|fno|flightnumber|fcflightno|flightcode)$/.test(lk[i])) { numKey = lk[i]; break; }
+    if (/^(fnum|flightno|flight_no|flightnum|fno|flightnumber|fcflightno|flightcode)$/.test(lk[i])) { hasNum = true; break; }
   }
-  if (!numKey) return false;
-  var timeHit = false;
+  if (!hasNum) return false;
   for (var j = 0; j < lk.length; j++) {
-    if (/(arr|est|plan|sched|time)/.test(lk[j]) && /(time|date|hm|hour|ts)$/.test(lk[j])) { timeHit = true; break; }
+    if (/(time|date|hm|hour|status|state|airport|port|code|num)$/.test(lk[j])) return true;
   }
-  return timeHit;
+  return false;
 }
 
 function collectFlightArrays(node, path, depth, out) {
-  if (depth > 8 || node === null || typeof node !== 'object') return;
+  if (depth > 9 || node === null || typeof node !== 'object') return;
   if (Array.isArray(node)) {
     if (node.length && isFlightObj(node[0])) out.push({ path: path, arr: node });
     var lim = Math.min(node.length, 3);
@@ -87,7 +138,6 @@ function pick(o, names) {
   return undefined;
 }
 
-// 任意时间表示 → "HH:mm"
 function normTime(v) {
   if (v === undefined || v === null || v === '') return '--:--';
   if (typeof v === 'number' || /^\d{9,13}$/.test(String(v))) {
@@ -102,8 +152,8 @@ function normTime(v) {
   var s = String(v).trim();
   var m = s.match(/(\d{1,2}):(\d{2})/);
   if (m) return (m[1].length === 1 ? '0' + m[1] : m[1]) + ':' + m[2];
-  if (/^\d{6}$/.test(s)) return s.slice(0, 2) + ':' + s.slice(2, 4);   // HHMMSS
-  if (/^\d{3,4}$/.test(s)) {                                            // HMM / HHMM
+  if (/^\d{6}$/.test(s)) return s.slice(0, 2) + ':' + s.slice(2, 4);
+  if (/^\d{3,4}$/.test(s)) {
     var p = s.length === 3 ? '0' + s : s;
     return p.slice(0, 2) + ':' + p.slice(2);
   }
@@ -147,11 +197,10 @@ function toQueueItem(f, airportCode) {
   var fnum = pick(f, ['fnum', 'flightno', 'flight_no', 'flightnum', 'fno', 'flightnumber', 'fcflightno', 'flightcode']);
   if (!fnum) return null;
 
-  // 若有方向字段，只要进港；起飞地在本地机场的直接排除
   if (airportCode) {
     var apt = normCode(airportCode);
-    var dep = normCode(pick(f, ['depairport', 'depairportcode', 'depapt', 'origincode', 'origin', 'depcode', 'dep']));
-    var arr = normCode(pick(f, ['arrairport', 'arrairportcode', 'arrapt', 'destinationcode', 'destination', 'arrcode', 'arr']));
+    var dep = normCode(pick(f, ['depairport', 'depairportcode', 'depapt', 'departureairport', 'origincode', 'origin', 'depcode', 'dep', 'depthreecode', 'deptthreecode']));
+    var arr = normCode(pick(f, ['arrairport', 'arrairportcode', 'arrapt', 'arrivalairport', 'destinationcode', 'destination', 'arrcode', 'arr', 'arrthreecode']));
     if (dep && dep === apt) return null;
     if (arr && arr !== apt) return null;
   }
@@ -159,11 +208,11 @@ function toQueueItem(f, airportCode) {
   var t = pick(f, [
     'arrest', 'arresttime', 'estarrtime', 'arrtime', 'arrplantime', 'planarrtime',
     'plannedarrival', 'schedarrtime', 'scheduledarrival', 'arr_time', 'arrhm',
-    'esttime', 'plantime', 'arrivaltime', 'eta'
+    'esttime', 'plantime', 'arrivaltime', 'eta', 'arrplantimes'
   ]);
 
-  var st = pick(f, ['flightstatus', 'status', 'state', 'flightstate', 'statusname', 'flightstatusname']);
-  var pg = pick(f, ['passager', 'passenger', 'passengernum', 'passengercount', 'planpassenger', 'passager_num', 'pcount']);
+  var st = pick(f, ['flightstatus', 'status', 'state', 'flightstate', 'statusname', 'flightstatusname', 'flightstatusdesc']);
+  var pg = pick(f, ['passager', 'passenger', 'passengernum', 'passengercount', 'planpassenger', 'passager_num', 'pcount', 'passengernumber']);
 
   return {
     fnum: String(fnum),
@@ -174,46 +223,50 @@ function toQueueItem(f, airportCode) {
 }
 
 function buildFromCache(cache, airportCode) {
-  var best = null;
+  var bestItems = null, bestFrom = null, bestTs = 0;
+
   for (var k in cache) {
     if (!Object.prototype.hasOwnProperty.call(cache, k)) continue;
     var e = cache[k];
-    if (!e || !e.body) continue;
-    if (e.kind === 'raw') continue;
+    if (!e || !e.body || e.kind === 'raw') continue;
     if (airportCode && e.airport && e.airport.toUpperCase() !== airportCode.toUpperCase()) continue;
-    if (!best || e.ts > best.ts) best = e;
-  }
-  if (!best) return null;
 
-  var j;
-  try { j = JSON.parse(best.body); } catch (e) { return null; }
+    var j;
+    try { j = JSON.parse(e.body); } catch (err) { continue; }
 
-  var arrs = [];
-  collectFlightArrays(j, '', 0, arrs);
-  if (!arrs.length) return null;
+    var arrs = [];
+    collectFlightArrays(j, '', 0, arrs);
+    if (!arrs.length) continue;
 
-  var items = [];
-  var seen = {};
-  for (var ai = 0; ai < arrs.length; ai++) {
-    var src = arrs[ai].arr;
-    for (var i = 0; i < src.length; i++) {
-      var it = toQueueItem(src[i], airportCode);
-      if (!it) continue;
-      var key = it.fnum + '|' + it.arrEst;
-      if (seen[key]) continue;
-      seen[key] = 1;
-      items.push(it);
+    var items = [], seen = {};
+    for (var ai = 0; ai < arrs.length; ai++) {
+      var src = arrs[ai].arr;
+      for (var i = 0; i < src.length; i++) {
+        var it = toQueueItem(src[i], airportCode);
+        if (!it) continue;
+        var dk = it.fnum + '|' + it.arrEst;
+        if (seen[dk]) continue;
+        seen[dk] = 1;
+        items.push(it);
+      }
+    }
+
+    if (items.length && (!bestItems || items.length > bestItems.length)) {
+      bestItems = items;
+      bestFrom = e.url || k;
+      bestTs = e.ts || 0;
     }
   }
-  if (!items.length) return null;
 
-  items.sort(function (a, b) {
+  if (!bestItems) return null;
+
+  bestItems.sort(function (a, b) {
     var x = a.arrEst === '--:--' ? '99:99' : a.arrEst;
     var y = b.arrEst === '--:--' ? '99:99' : b.arrEst;
     return x < y ? -1 : (x > y ? 1 : 0);
   });
 
-  return { items: items, from: best.url || k, ts: best.ts };
+  return { items: bestItems, from: bestFrom, ts: bestTs };
 }
 
 /* ---------------- 主逻辑 ---------------- */
@@ -225,20 +278,22 @@ function buildFromCache(cache, airportCode) {
 
   if (!body) { $done({}); return; }
 
+  var dec = decodeJson(body);
+
   /* --- A. 排队页：改写 --- */
   if (/\/airport\/(in|out)queuev5/.test(url)) {
     var airport = urlParam(url, 'airport');
-    var built = buildFromCache(loadCache(), airport);
 
+    if (!dec) { $done({ body: body }); return; }
+
+    var built = buildFromCache(loadCache(), airport);
     if (!built) {
-      console.log('[feeyo_queue] no cache for ' + airport + ' -> passthrough');
+      console.log('[feeyo_queue v3] no cache for ' + airport + ' -> passthrough');
       $done({ body: body });
       return;
     }
 
-    var obj = null;
-    try { obj = JSON.parse(body); } catch (e) { obj = null; }
-
+    var obj = dec.obj;
     if (!obj || typeof obj !== 'object') { $done({ body: body }); return; }
 
     var holder = obj;
@@ -258,22 +313,16 @@ function buildFromCache(cache, airportCode) {
       holder.proplus = { status: 1 };
     }
 
-    console.log('[feeyo_queue] ' + airport + ' filled ' + built.items.length + ' flights from ' + built.from);
+    console.log('[feeyo_queue v3] ' + airport + ' filled ' + built.items.length +
+                ' flights from ' + built.from + ' (via ' + dec.via + ')');
     $done({ body: JSON.stringify(obj), headers: $response.headers });
     return;
   }
 
   /* --- B. 其它接口：采集 --- */
-  var qAirport = urlParam(url, 'airport') || urlParam(url, 'airportCode') || urlParam(url, 'apt') || urlParam(url, 'code');
-  var probe = null;
-  var parsed = false;
+  var qAirport = urlParam(url, 'airport') || urlParam(url, 'airportCode') || urlParam(url, 'apt') || urlParam(url, 'code') || urlParam(url, 'dep') || urlParam(url, 'arr');
 
-  try { probe = JSON.parse(body); parsed = true; } catch (e) { parsed = false; }
-
-  if (!parsed) {
-    var raw = body.trim();
-
-    // ---- 诊断：密文接口的元信息，够判断加密方式 ----
+  if (!dec) {
     try {
       var hdrs = ($response && $response.headers) || {};
       var hnames = [];
@@ -283,35 +332,26 @@ function buildFromCache(cache, airportCode) {
         if (/content-type/i.test(hnames[hi])) ct = hdrs[hnames[hi]];
       }
       var hex = '';
-      var lim = Math.min(128, raw.length);
+      var lim = Math.min(64, body.length);
       for (var bi = 0; bi < lim; bi++) {
-        var cp = raw.charCodeAt(bi) & 0xff;
+        var cp = body.charCodeAt(bi) & 0xff;
         hex += (cp < 16 ? '0' : '') + cp.toString(16);
       }
       var dpath = url.split('?')[0].replace(/^https?:\/\/[^/]+/, '');
-      var qs = (url.split('?')[1] || '').split('&').map(function (kv) { return kv.split('=')[0]; }).join(',');
-      console.log('[diag] path=' + dpath);
-      console.log('[diag] ct=' + ct + ' len=' + raw.length + ' enc=' + (/^[A-Za-z0-9+/=]+$/.test(raw) ? 'base64ish' : 'binaryish'));
-      console.log('[diag] qs=' + qs);
-      console.log('[diag] hdr=' + hnames.join(','));
+      console.log('[diag] ' + dpath + ' ct=' + ct + ' len=' + body.length + ' b64len=' + b64BytesLen(body));
       console.log('[diag] head=' + hex);
-      console.log('[diag] pre=' + raw.slice(0, 48).replace(/[^\x20-\x7e]/g, '.'));
     } catch (e) {}
 
-    var looksEnc = /^[A-Za-z0-9+/=\s]{64,}$/.test(raw) || /^[0-9a-fA-F]{64,}$/.test(raw);
-    if (looksEnc) {
-      var cc = loadCache();
-      var rk = 'RAW_' + url.split('?')[0].replace(/^https?:\/\/[^/]+/, '').replace(/[^A-Za-z0-9_]/g, '_');
-      cc[rk] = { url: url.split('?')[0], airport: qAirport, ts: Date.now(), kind: 'raw', body: raw.slice(0, 4000) };
-      saveCache(cc);
-      console.log('[feeyo_queue] raw sample kept: ' + rk + ' len=' + raw.length);
-    }
+    var cc0 = loadCache();
+    var rk = 'RAW_' + url.split('?')[0].replace(/^https?:\/\/[^/]+/, '').replace(/[^A-Za-z0-9_]/g, '_');
+    cc0[rk] = { url: url.split('?')[0], airport: qAirport, ts: Date.now(), kind: 'raw', body: body.slice(0, 4000) };
+    saveCache(cc0);
     $done({ body: body });
     return;
   }
 
   var found = [];
-  collectFlightArrays(probe, '', 0, found);
+  collectFlightArrays(dec.obj, '', 0, found);
 
   if (found.length) {
     var c = loadCache();
@@ -328,14 +368,18 @@ function buildFromCache(cache, airportCode) {
       if (oldestKey) delete c[oldestKey];
     }
 
+    var text = dec.text;
+    if (text.length > MAX_PER) text = text.slice(0, MAX_PER);
+
     c[key] = {
       url: url.split('?')[0],
       airport: qAirport,
       ts: Date.now(),
-      body: body.length > MAX_PER ? body.slice(0, MAX_PER) : body
+      body: text
     };
     saveCache(c);
-    console.log('[feeyo_queue] cached ' + key + ' (' + found[0].arr.length + ' flights, apt=' + qAirport + ')');
+
+    console.log('[feeyo_queue v3] cached ' + key + ' (' + found[0].arr.length + ' flights, via ' + dec.via + ', apt=' + qAirport + ')');
   }
 
   $done({ body: body });
