@@ -1,13 +1,13 @@
 #!name=飞常准 进港排队全天
-#!desc=v11：本地解密/加密全站 AES 响应，把机场大屏的全天航班并进排队页，解除 pro+ 遮罩。用法：重启 App 后先进「机场→选机场→大屏」上下翻几页，再进排队页。
+#!desc=v12：运行时把 pro+ 状态改成已开通（proplus.status=1、解除遮罩与提示），并用机场大屏的全天航班补齐排队列表。用法：重启 App 后先进「机场→选机场→大屏」上下翻几页，再进排队页。
 
 [mitm]
 hostname = app.variflight.com, *.variflight.com
 
 [rewrite_local]
 
-# 排队页：解密 -> 保留原有条目并追加全天航班 -> 按原格式写回
-^https?:\/\/app\.variflight\.com\/airport\/(in|out)queuev5 url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@ed13fc83ddb955500ba7be7e624eb047ad62fc29/feeyo_queue.js
+# 排队页：解密 -> 解除 pro+ 限制 + 追加全天航班 -> 按原格式写回
+^https?:\/\/app\.variflight\.com\/airport\/(in|out)queuev5 url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@70da4d22078a41606c351c510aaad81ed26cb49f/feeyo_queue.js
 
-# 其它接口：解密并把航班沉淀进累积池（screenList 分页也能叠加）
-^https?:\/\/app\.variflight\.com\/(v[0-9]+\/|airport|flight) url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@ed13fc83ddb955500ba7be7e624eb047ad62fc29/feeyo_queue.js
+# 其它接口：解密并把航班沉淀进累积池（screenList 分页也会叠加）
+^https?:\/\/app\.variflight\.com\/(v[0-9]+\/|airport|flight) url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@70da4d22078a41606c351c510aaad81ed26cb49f/feeyo_queue.js
