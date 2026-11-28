@@ -1,13 +1,11 @@
 #!name=飞常准 进港排队全天
-#!desc=v15 探针版：解锁 pro+ 并补齐全天航班，同时把排队接口的完整请求 URL 打进日志。用法：重启 App 后进排队页，把日志里 [feeyo u1] 开头那行发回。
+#!desc=v16 探针版：功能同 v14，额外用同一个签名去打 /v4/airport/getQueueList。用法：重启 App 进排队页，把 [feeyo u2] 开头几行发回。
 
 [mitm]
 hostname = app.variflight.com, *.variflight.com
 
 [rewrite_local]
 
-# 排队页：解密 -> 解锁 pro+ + 补齐全天 + 按时间重排 -> 按原格式写回
-^https?:\/\/app\.variflight\.com\/airport\/(in|out)queuev5 url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@a2101ce41e12c4af9b9103aed7f08d55d1ee4436/feeyo_queue.js
+^https?:\/\/app\.variflight\.com\/airport\/(in|out)queuev5 url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@77adc3decadcc30927906770f970e7e88ce830be/feeyo_queue.js
 
-# 其它接口：解密并把航班沉淀进累积池（screenList 分页也会叠加）
-^https?:\/\/app\.variflight\.com\/(v[0-9]+\/|airport|flight) url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@a2101ce41e12c4af9b9103aed7f08d55d1ee4436/feeyo_queue.js
+^https?:\/\/app\.variflight\.com\/(v[0-9]+\/|airport|flight) url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@77adc3decadcc30927906770f970e7e88ce830be/feeyo_queue.js
