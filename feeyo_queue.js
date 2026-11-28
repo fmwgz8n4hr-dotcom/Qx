@@ -1,4 +1,3 @@
-
 var AES_KEY    = 'ce77c4ff557fb4b1';
 var CACHE_KEY  = 'feeyo_q_cache_v3';
 var DUMP_KEY   = 'feeyo_q_dump_v1';
@@ -368,6 +367,15 @@ function tsToHM(v) {
   return pad2(d.getHours()) + ':' + pad2(d.getMinutes());
 }
 
+function tsToDate(v) {
+  var n = Number(v);
+  if (!isFinite(n) || n <= 0) return '';
+  if (n > 1e12) n = Math.floor(n / 1000);
+  var d = new Date(n * 1000);
+  if (isNaN(d.getTime())) return '';
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+}
+
 function normTime(v) {
   if (v === undefined || v === null || v === '') return '';
   var s = String(v).replace(/^\s+|\s+$/g, '');
@@ -424,9 +432,14 @@ function up(v) {
 }
 
 function pickTS(o, names) {
-  var v = pick(o, names);
-  if (v === undefined || v === null || v === '') return '';
-  return tsToHM(v);
+  var lk = lowerKeys(o);
+  for (var i = 0; i < names.length; i++) {
+    var real = lk[names[i]];
+    if (real === undefined) continue;
+    var t = tsToHM(o[real]);
+    if (t) return t;
+  }
+  return '';
 }
 
 function toQueueItem(f) {
@@ -437,22 +450,25 @@ function toQueueItem(f) {
   fnum = String(fnum).replace(/\s+/g, '').toUpperCase();
   if (!/^[A-Z0-9]{2,3}\d{2,4}[A-Z]?$/.test(fnum)) return null;
 
-  var dep = up(pick(f, ['depcode', 'depairport', 'depapt', 'dep', 'depthreecode', 'origincode', 'origin']));
-  var arr = up(pick(f, ['arrcode', 'arrairport', 'arrapt', 'arr', 'arrthreecode', 'destinationcode', 'destination']));
+  var dep = up(pick(f, ['depcode', 'departurecode', 'depairport', 'depapt', 'dep', 'depthreecode', 'origincode', 'origin']));
+  var arr = up(pick(f, ['arrcode', 'arrivalcode', 'arrairport', 'arrapt', 'arr', 'arrthreecode', 'destinationcode', 'destination']));
 
-  var arrT = normTime(pick(f, ['arrplantime', 'arrest', 'arrtime', 'estarrtime', 'eta', 'planarrtime', 'arrhm']))
-          || pickTS(f, ['arrestimatetimestamp', 'arrplantimestamp', 'estarrtimestamp'])
-          || normTime(pick(f, ['arrtime', 'arresttime']));
+  var arrT = normTime(pick(f, ['arrest', 'arrivalestimatetime', 'arrivalplantime', 'arrtime', 'arrplantime']))
+          || pickTS(f, ['arrivalestimatetimestamp', 'arrivalplantimestamp', 'arrestimatetimestamp', 'arrplantimestamp', 'estarrtimestamp'])
+          || normTime(pick(f, ['estarrtime', 'eta', 'arrhm']));
 
-  var depT = normTime(pick(f, ['depplantime', 'depest', 'deptime', 'plandeparttime', 'dephm']))
-          || pickTS(f, ['depestimatetimestamp', 'depplantimestamp']);
+  var depT = normTime(pick(f, ['deptime', 'depplantime', 'departureplantime', 'departureestimatetime']))
+          || pickTS(f, ['departureestimatetimestamp', 'departureplantimestamp', 'depestimatetimestamp', 'depplantimestamp']);
+
+  var dt = normDate(pick(f, ['date', 'arrplandate', 'depdate', 'depplandate']))
+        || tsToDate(pick(f, ['arrivalplantimestamp', 'departureplantimestamp', 'arrivalestimatetimestamp']));
 
   var item = {
     isCare: false,
     flightNum: fnum,
     depcode: dep,
     arrcode: arr,
-    date: normDate(pick(f, ['date', 'arrplandate', 'depdate', 'depplandate'])),
+    date: dt,
     depTime: depT,
     arrTime: arrT,
     status: normStatus(pick(f, ['flightstatus', 'status', 'flightstate', 'state', 'statusname'])),
@@ -669,7 +685,7 @@ function trimToRestOfDay(items, dateStr) {
 
   if (isQueue) {
     if (!dec) {
-      if (dumpOnce('qnodec')) console.log('[feeyo v11] queue undecodable len=' + body.length);
+      if (dumpOnce('qnodec')) console.log('[feeyo v12] queue undecodable len=' + body.length);
       $done({ body: body });
       return;
     }
@@ -678,11 +694,11 @@ function trimToRestOfDay(items, dateStr) {
       try {
         var rb = (typeof $request.body === 'string') ? $request.body : '';
         var rd = rb ? decodeJson(rb) : null;
-        console.log('[feeyo v11] REQRAW ' + (rb ? rb.slice(0, 80) : '(empty)'));
-        console.log('[feeyo v11] REQDEC ' + (rd ? rd.text.slice(0, 400) : '(not decodable)'));
+        console.log('[feeyo v12] REQRAW ' + (rb ? rb.slice(0, 80) : '(empty)'));
+        console.log('[feeyo v12] REQDEC ' + (rd ? rd.text.slice(0, 400) : '(not decodable)'));
         var hs = '';
         try { for (var hk2 in $request.headers) hs += hk2 + ':' + String($request.headers[hk2]).slice(0, 12) + ' '; } catch (e) {}
-        console.log('[feeyo v11] HDR ' + hs.slice(0, 400));
+        console.log('[feeyo v12] HDR ' + hs.slice(0, 400));
       } catch (e) {}
     }
 
@@ -692,18 +708,18 @@ function trimToRestOfDay(items, dateStr) {
       var ql0 = Array.isArray(d0.queueList) ? d0.queueList : [];
       var pl0 = Array.isArray(d0.prolist) ? d0.prolist : [];
       var pf0 = Array.isArray(d0.preFlight) ? d0.preFlight : (Array.isArray(d0.preFly) ? d0.preFly : []);
-      console.log('[feeyo v11] QV=' + dec.via + ' apt=' + apt +
+      console.log('[feeyo v12] QV=' + dec.via + ' apt=' + apt +
                   ' queue=' + ql0.length + ' pro=' + pl0.length + ' pre=' + pf0.length +
                   ' tip=' + JSON.stringify(d0.tip || '') +
                   ' proplus=' + JSON.stringify(d0.proplus || null).slice(0, 120));
-      console.log('[feeyo v11] Q1 ' + JSON.stringify(ql0[0] || null).slice(0, 420));
-      console.log('[feeyo v11] P1 ' + JSON.stringify(pl0[0] || null).slice(0, 420));
-      console.log('[feeyo v11] PF1 ' + JSON.stringify(pf0[0] || null).slice(0, 420));
+      console.log('[feeyo v12] Q1 ' + JSON.stringify(ql0[0] || null).slice(0, 420));
+      console.log('[feeyo v12] P1 ' + JSON.stringify(pl0[0] || null).slice(0, 420));
+      console.log('[feeyo v12] PF1 ' + JSON.stringify(pf0[0] || null).slice(0, 420));
     }
 
     var built = buildFromCache(loadCache(), apt, isIn);
     if (!built) {
-      if (dumpOnce('qnocache')) console.log('[feeyo v11] no cache for ' + (apt || '??'));
+      if (dumpOnce('qnocache')) console.log('[feeyo v12] no cache for ' + (apt || '??'));
       $done({ body: body });
       return;
     }
@@ -731,9 +747,9 @@ function trimToRestOfDay(items, dateStr) {
       if (dk2) for (var qk2 in dk2) if (Object.prototype.hasOwnProperty.call(dk2, qk2)) kl2 += qk2 + ',';
       var pl2 = '';
       for (var qi4 = 0; qi4 < qArrs.length; qi4++) pl2 += qArrs[qi4].path + '=' + qArrs[qi4].arr.length + ' ';
-      console.log('[feeyo v11] KEYS root:' + kl.slice(0, 160) + ' | data:' + kl2.slice(0, 200));
-      console.log('[feeyo v11] ARRS ' + pl2.slice(0, 320));
-      console.log('[feeyo v11] TPL ' + JSON.stringify(qArrs.length ? qArrs[0].arr[0] : null).slice(0, 500));
+      console.log('[feeyo v12] KEYS root:' + kl.slice(0, 160) + ' | data:' + kl2.slice(0, 200));
+      console.log('[feeyo v12] ARRS ' + pl2.slice(0, 320));
+      console.log('[feeyo v12] TPL ' + JSON.stringify(qArrs.length ? qArrs[0].arr[0] : null).slice(0, 500));
     }
 
     var tplAny = null;
@@ -799,7 +815,7 @@ function trimToRestOfDay(items, dateStr) {
     }
 
     if (!replaced) {
-      console.log('[feeyo v11] keep original (built ' + items.length + ') apt=' + apt + ' src=' + built.from);
+      console.log('[feeyo v12] keep original (built ' + items.length + ') apt=' + apt + ' src=' + built.from);
       $done({ body: body });
       return;
     }
@@ -828,7 +844,7 @@ function trimToRestOfDay(items, dateStr) {
 
     var outBody = encodeAs(obj, dec.via);
 
-    console.log('[feeyo v11] ' + (apt || '??') + ' filled ' + items.length +
+    console.log('[feeyo v12] ' + (apt || '??') + ' filled ' + items.length +
                 ' flights (+' + replaced + ' new) via=' + dec.via +
                 ' src=' + built.from + ' out=' + outBody.length);
 
@@ -838,7 +854,7 @@ function trimToRestOfDay(items, dateStr) {
 
   if (!dec) {
     if (dumpOnce('undec_' + dpath.replace(/[^A-Za-z0-9_]/g, '_')))
-      console.log('[feeyo v11] undecoded ' + dpath + ' len=' + body.length);
+      console.log('[feeyo v12] undecoded ' + dpath + ' len=' + body.length);
     $done({ body: body });
     return;
   }
@@ -885,13 +901,13 @@ function trimToRestOfDay(items, dateStr) {
     var pooled = apt ? poolAdd(c, apt, norm) : 0;
     saveCache(c);
 
-    console.log('[feeyo v11] cached ' + key + ' (' + count + ' flights, via ' + dec.via + ', apt=' + apt + ', pool+' + pooled + ')');
+    console.log('[feeyo v12] cached ' + key + ' (' + count + ' flights, via ' + dec.via + ', apt=' + apt + ', pool+' + pooled + ')');
 
     if (/screenList/i.test(dpath) && dumpOnce('req_screen')) {
       try {
         var rb3 = (typeof $request.body === 'string') ? $request.body : '';
         var rd2 = rb3 ? decodeJson(rb3) : null;
-        console.log('[feeyo v11] SREQ ' + (rd2 ? rd2.text.slice(0, 400) : (rb3 ? 'RAW:' + rb3.slice(0, 120) : '(empty)')));
+        console.log('[feeyo v12] SREQ ' + (rd2 ? rd2.text.slice(0, 400) : (rb3 ? 'RAW:' + rb3.slice(0, 120) : '(empty)')));
       } catch (e) {}
     }
 
@@ -903,8 +919,8 @@ function trimToRestOfDay(items, dateStr) {
         for (var k5 in it0) if (Object.prototype.hasOwnProperty.call(it0, k5)) ks += k5 + '=';
         sh += ' [' + found[fk].path + ' n=' + found[fk].arr.length + ' keys:' + ks + ']';
       }
-      console.log('[feeyo v11] SHAPE' + dpath + sh.slice(0, 600));
-      console.log('[feeyo v11] HEAD' + dpath + ' ' + dec.text.slice(0, 500));
+      console.log('[feeyo v12] SHAPE' + dpath + sh.slice(0, 600));
+      console.log('[feeyo v12] HEAD' + dpath + ' ' + dec.text.slice(0, 500));
     }
   }
 
