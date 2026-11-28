@@ -1,7 +1,7 @@
 /*
- * 飞常准 · 机场进港排队「全天」补全  v7
+ * 飞常准 · 机场进港排队「全天」补全  v8
  * v3 base64解码 / v4 b64head / v5 配置接口 / v6 请求头 / v7 请求体
- * v7：接口已改为 POST，参数在 body 里，key/sign 最可能也在那里。
+ * v8：明文响应里若含 key/secret/aes 等字段，单独打印（首次启动的下发点）
  */
 
 var CACHE_KEY = 'feeyo_q_cache_v1';
@@ -261,7 +261,7 @@ function buildFromCache(cache, airportCode) {
 
   var url = ($request && $request.url) ? $request.url : '';
 
-  // ===== 请求阶段：打印 POST 请求体（key / sign 最可能在这里） =====
+  // ===== 请求阶段：打印请求体 =====
   if (!$response) {
     var rbody = ($request && $request.body) ? String($request.body) : '';
     if (rbody) {
@@ -286,7 +286,7 @@ function buildFromCache(cache, airportCode) {
 
     var built = buildFromCache(loadCache(), airport);
     if (!built) {
-      console.log('[feeyo_queue v7] no cache for ' + airport + ' -> passthrough');
+      console.log('[feeyo_queue v8] no cache for ' + airport + ' -> passthrough');
       $done({ body: body });
       return;
     }
@@ -311,7 +311,7 @@ function buildFromCache(cache, airportCode) {
       holder.proplus = { status: 1 };
     }
 
-    console.log('[feeyo_queue v7] ' + airport + ' filled ' + built.items.length +
+    console.log('[feeyo_queue v8] ' + airport + ' filled ' + built.items.length +
                 ' flights from ' + built.from + ' (via ' + dec.via + ')');
     $done({ body: JSON.stringify(obj), headers: $response.headers });
     return;
@@ -346,7 +346,7 @@ function buildFromCache(cache, airportCode) {
         console.log('[diag] b64head=' + seenTxt + ' | bytes=' + bts.length);
       }
 
-      if (/config|init|secret|setting|appinfo|startup/i.test(dpath)) {
+      if (/config|init|secret|setting|appinfo|startup|sdk_config/i.test(dpath)) {
         var pre = body.slice(0, 1200).replace(/[\r\n\t]+/g, ' ');
         console.log('[cfg] ' + dpath + ' [' + body.length + '] ' + pre);
       }
@@ -368,6 +368,14 @@ function buildFromCache(cache, airportCode) {
     $done({ body: body });
     return;
   }
+
+  // 明文响应里若出现 key 类字段，单独打出来（首次启动的下发点）
+  try {
+    var dpt = url.split('?')[0].replace(/^https?:\/\/[^/]+/, '');
+    if (/appkey|appsecret|secret|aeskey|aes_key|encryptkey|signkey|privatekey|bootstrap|license|initkey/i.test(dec.text)) {
+      console.log('[KEY?] ' + dpt + ' [' + dec.text.length + '] ' + dec.text.slice(0, 1400));
+    }
+  } catch (e) {}
 
   var found = [];
   collectFlightArrays(dec.obj, '', 0, found);
@@ -393,7 +401,7 @@ function buildFromCache(cache, airportCode) {
     c[key] = { url: url.split('?')[0], airport: qAirport, ts: Date.now(), body: text };
     saveCache(c);
 
-    console.log('[feeyo_queue v7] cached ' + key + ' (' + found[0].arr.length + ' flights, via ' + dec.via + ', apt=' + qAirport + ')');
+    console.log('[feeyo_queue v8] cached ' + key + ' (' + found[0].arr.length + ' flights, via ' + dec.via + ', apt=' + qAirport + ')');
   }
 
   $done({ body: body });
