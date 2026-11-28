@@ -1,6 +1,7 @@
 /*
- * 飞常准 · 机场进港排队「全天」补全  v6
- * v3 base64 解码 / v4 b64head 诊断 / v5 配置接口打印 / v6 请求头打印
+ * 飞常准 · 机场进港排队「全天」补全  v7
+ * v3 base64解码 / v4 b64head / v5 配置接口 / v6 请求头 / v7 请求体
+ * v7：接口已改为 POST，参数在 body 里，key/sign 最可能也在那里。
  */
 
 var CACHE_KEY = 'feeyo_q_cache_v1';
@@ -259,6 +260,18 @@ function buildFromCache(cache, airportCode) {
 (function () {
 
   var url = ($request && $request.url) ? $request.url : '';
+
+  // ===== 请求阶段：打印 POST 请求体（key / sign 最可能在这里） =====
+  if (!$response) {
+    var rbody = ($request && $request.body) ? String($request.body) : '';
+    if (rbody) {
+      var dp0 = url.split('?')[0].replace(/^https?:\/\/[^/]+/, '');
+      console.log('[body] ' + dp0 + ' [' + rbody.length + '] ' + rbody.slice(0, 900));
+    }
+    $done({});
+    return;
+  }
+
   var body = ($response && typeof $response.body === 'string') ? $response.body : '';
 
   if (!body) { $done({}); return; }
@@ -273,7 +286,7 @@ function buildFromCache(cache, airportCode) {
 
     var built = buildFromCache(loadCache(), airport);
     if (!built) {
-      console.log('[feeyo_queue v6] no cache for ' + airport + ' -> passthrough');
+      console.log('[feeyo_queue v7] no cache for ' + airport + ' -> passthrough');
       $done({ body: body });
       return;
     }
@@ -298,7 +311,7 @@ function buildFromCache(cache, airportCode) {
       holder.proplus = { status: 1 };
     }
 
-    console.log('[feeyo_queue v6] ' + airport + ' filled ' + built.items.length +
+    console.log('[feeyo_queue v7] ' + airport + ' filled ' + built.items.length +
                 ' flights from ' + built.from + ' (via ' + dec.via + ')');
     $done({ body: JSON.stringify(obj), headers: $response.headers });
     return;
@@ -338,7 +351,6 @@ function buildFromCache(cache, airportCode) {
         console.log('[cfg] ' + dpath + ' [' + body.length + '] ' + pre);
       }
 
-      // 请求行与请求头：key / iv 若随请求走，一定在这里
       var rh = ($request && $request.headers) || {};
       var rhStr = '';
       for (var rk in rh) {
@@ -381,7 +393,7 @@ function buildFromCache(cache, airportCode) {
     c[key] = { url: url.split('?')[0], airport: qAirport, ts: Date.now(), body: text };
     saveCache(c);
 
-    console.log('[feeyo_queue v6] cached ' + key + ' (' + found[0].arr.length + ' flights, via ' + dec.via + ', apt=' + qAirport + ')');
+    console.log('[feeyo_queue v7] cached ' + key + ' (' + found[0].arr.length + ' flights, via ' + dec.via + ', apt=' + qAirport + ')');
   }
 
   $done({ body: body });
