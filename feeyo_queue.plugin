@@ -1,13 +1,16 @@
 #!name=飞常准 进港排队全天
-#!desc=用 App 自身已获授权的航班接口数据填充机场进港排队页，解除 3 小时窗口。用法：杀掉 App 重开，先开一次「机场」页/大屏翻两下，再进排队页。
+#!desc=用 App 自身已获授权的航班接口数据填充机场进港排队页。用法：杀掉 App 重开，先开一次「机场」页翻两下，再进排队页。
 
 [mitm]
-hostname = app.variflight.com, *.variflight.com
+hostname = *.variflight.com, variflight.com
 
 [rewrite_local]
 
-# 排队页：用缓存数据补全天列表
-^https?:\/\/app\.variflight\.com\/airport\/(in|out)queuev5 url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@d40b3570a881f903a122b3815f3d344061837914/feeyo_queue.js
+# 1) 排队页：用缓存数据补全天列表
+^https?:\/\/[a-z0-9.-]*variflight\.com\/airport\/(in|out)queuev5 url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@f22d16bf5178dd70ce5ea485ac54bbb279286bcd/feeyo_queue.js
 
-# 所有接口（含 /v3/config 等配置接口，用来找 AES key）+ 机场/航班数据缓存
-^https?:\/\/app\.variflight\.com\/(v[0-9]+\/|airport|flight) url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@d40b3570a881f903a122b3815f3d344061837914/feeyo_queue.js
+# 2) 全域名接口：机场 / 航班数据缓存 + 配置接口与请求头诊断
+^https?:\/\/[a-z0-9.-]*variflight\.com\/(v[0-9]+\/|airport|flight|api) url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@f22d16bf5178dd70ce5ea485ac54bbb279286bcd/feeyo_queue.js
+
+# 3) 兜底：任何域名下路径里带 config 的请求
+^https?:\/\/[a-z0-9.-]*variflight\.com\/[^?]*[Cc]onfig url script-response-body https://cdn.jsdelivr.net/gh/fmwgz8n4hr-dotcom/Qx@f22d16bf5178dd70ce5ea485ac54bbb279286bcd/feeyo_queue.js
