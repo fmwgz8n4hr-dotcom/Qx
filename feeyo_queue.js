@@ -1,25 +1,9 @@
-/*
- * 飞常准 · 机场进港排队「全天」补全  v10
- * ---------------------------------------------------------------
- * 全站加密：AES-128-ECB，key = ce77c4ff557fb4b1
- *
- * v10 修正了三处硬伤：
- *  1. 响应必须重新加密再写回（v9 回明文，App 解不开直接回退旧数据）
- *  2. 列表字段是 queueList / prolist，不是 list
- *  3. 列表项模型 VZTAirportOutQueueFlightModel 的真实字段
- *     （flightNum / depcode / arrcode / depTime / arrTime / status /
- *       depCityName / arrCityName / passager / yw / terminal）
- *
- * 数据源：/airport/screenList（机场大屏，全天全量，VZTAirportScreenFlightModel）
- */
 
 var AES_KEY    = 'ce77c4ff557fb4b1';
 var CACHE_KEY  = 'feeyo_q_cache_v3';
 var DUMP_KEY   = 'feeyo_q_dump_v1';
 var MAX_PER    = 400000;
 var MAX_ITEMS  = 14;
-
-/* ================= AES 核心表 ================= */
 
 var SBOX = (function (s) {
   var a = [];
@@ -73,7 +57,6 @@ function aesKeyBytes(keyStr) {
   return key;
 }
 
-/* ---- 解密一个块 ---- */
 function aesDecBlock(inp, w) {
   var s = new Array(16), r, c, k;
   for (c = 0; c < 4; c++) for (r = 0; r < 4; r++) s[c * 4 + r] = inp[r + 4 * c];
@@ -108,7 +91,6 @@ function aesDecBlock(inp, w) {
   return out;
 }
 
-/* ---- 加密一个块 ---- */
 function aesEncBlock(inp, w) {
   var s = new Array(16), r, c, k;
   for (c = 0; c < 4; c++) for (r = 0; r < 4; r++) s[c * 4 + r] = inp[r + 4 * c];
@@ -173,8 +155,6 @@ function aesEncryptECB(data, keyStr) {
   }
   return out;
 }
-
-/* ================= base64 / utf8 ================= */
 
 var B64C = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
@@ -248,8 +228,6 @@ function utf8ToBytes(s) {
   return out;
 }
 
-/* ================= 编解码 ================= */
-
 function decodeJson(raw) {
   if (!raw) return null;
   var s = String(raw).replace(/^\s+|\s+$/g, '');
@@ -274,7 +252,6 @@ function decodeJson(raw) {
   return null;
 }
 
-/* 按原响应格式回写：原来加密就加密回去 */
 function encodeAs(obj, via) {
   var s = JSON.stringify(obj);
   if (via === 'plain') return s;
@@ -282,8 +259,6 @@ function encodeAs(obj, via) {
   if (via === 'aes') return bytesToB64(aesEncryptECB(bytes, AES_KEY));
   return bytesToB64(bytes);
 }
-
-/* ================= 缓存 ================= */
 
 function loadCache() {
   try { return JSON.parse($prefs.valueForKey(CACHE_KEY) || '{}'); }
@@ -312,8 +287,6 @@ function urlParam(url, name) {
   var m = url.match(new RegExp('[?&]' + name + '=([^&#]*)'));
   return m ? decodeURIComponent(m[1]) : '';
 }
-
-/* ================= 机场码 ================= */
 
 var APT_STOP = { CNX: 0, ALL: 0, ANY: 0, UTC: 0, GMT: 0, CNY: 0, RMB: 0, VIP: 0, PRO: 0, IOS: 0, AND: 0, IDN: 0 };
 
@@ -366,8 +339,6 @@ function aptFromRequest() {
     return aptFromText(rb);
   } catch (e) { return ''; }
 }
-
-/* ================= 字段抽取 ================= */
 
 function lowerKeys(o) {
   var out = {};
@@ -458,7 +429,6 @@ function pickTS(o, names) {
   return tsToHM(v);
 }
 
-/* 把任意来源的航班对象，规范成 VZTAirportOutQueueFlightModel 的形状 */
 function toQueueItem(f) {
   if (!f || typeof f !== 'object') return null;
 
@@ -486,8 +456,8 @@ function toQueueItem(f) {
     depTime: depT,
     arrTime: arrT,
     status: normStatus(pick(f, ['flightstatus', 'status', 'flightstate', 'state', 'statusname'])),
-    arrCityName: String(pick(f, ['arrcityname', 'arrciytname', 'arrcity']) || ''),
-    depCityName: String(pick(f, ['depcityname', 'depcity']) || ''),
+    arrCityName: String(pick(f, ['arrcityname', 'arrciytname', 'arrcity', 'arrival']) || ''),
+    depCityName: String(pick(f, ['depcityname', 'depcity', 'departure']) || ''),
     passager: normPax(pick(f, ['passager', 'passengernum', 'passagercount', 'planpassenger', 'pcount', 'num'])),
     yw: String(pick(f, ['yw', 'delay', 'delaytime']) || ''),
     terminal: String(pick(f, ['arrterminal', 'terminal', 'depterminal']) || ''),
@@ -498,7 +468,48 @@ function toQueueItem(f) {
   return item;
 }
 
-/* 递归收集航班数组 */
+function rewriteLike(tpl, src) {
+  var o = {};
+  for (var k in tpl) {
+    if (!Object.prototype.hasOwnProperty.call(tpl, k)) continue;
+    var lk = k.toLowerCase(), v;
+    if (/^(fnum|flightnum|flightnumber|flightno|fcflightno|flightcode)$/.test(lk)) v = src.flightNum;
+    else if (/^(dep|depcode|departurecode|depairport|depapt)$/.test(lk)) v = src.depcode;
+    else if (/^(arr|arrcode|arrivalcode|arrairport|arrapt)$/.test(lk)) v = src.arrcode;
+    else if (/^(departure|depcityname|depcity)$/.test(lk)) v = src.depCityName;
+    else if (/^(arrival|arrcityname|arrciytname|arrcity)$/.test(lk)) v = src.arrCityName;
+    else if (/^(arrest|arrtime|arrplantime|arrhm)$/.test(lk)) v = src.arrTime;
+    else if (/^(deptime|depplantime|dephm)$/.test(lk)) v = src.depTime;
+    else if (/^(flightstatus|status|flightstate)$/.test(lk)) v = src.status;
+    else if (/^(passager|passagernum|passengernum|pcount)$/.test(lk)) v = src.passager;
+    else if (/^(yw|delay|delaytime)$/.test(lk)) v = src.yw;
+    else if (/^terminal$/.test(lk)) v = src.terminal;
+    else if (/^date$/.test(lk)) v = src.date;
+    else if (/timestamp$/.test(lk)) v = 0;
+    else if (typeof tpl[k] === 'number') v = 0;
+    else if (typeof tpl[k] === 'boolean') v = false;
+    else v = '';
+    o[k] = v;
+  }
+  return o;
+}
+
+function aptOfArray(arr) {
+  if (!arr || !arr.length) return '';
+  var n = Math.min(arr.length, 40), aC = {}, dC = {}, i;
+  for (i = 0; i < n; i++) {
+    var a = up(pick(arr[i], ['arrcode', 'arrivalcode', 'arrairport', 'arr']));
+    var d = up(pick(arr[i], ['depcode', 'departurecode', 'depairport', 'dep']));
+    if (a) aC[a] = (aC[a] || 0) + 1;
+    if (d) dC[d] = (dC[d] || 0) + 1;
+  }
+  var best = '', bestN = 0, k;
+  for (k in aC) if (aC[k] > bestN) { bestN = aC[k]; best = k; }
+  for (k in dC) if (dC[k] > bestN) { bestN = dC[k]; best = k; }
+  if (!best) return '';
+  return bestN >= Math.ceil(n * 0.8) ? best : '';
+}
+
 function isFlightObj(o) {
   if (!o || typeof o !== 'object' || Array.isArray(o)) return false;
   var lk = Object.keys(lowerKeys(o));
@@ -527,8 +538,6 @@ function collectFlightArrays(node, path, depth, out) {
   }
 }
 
-/* ================= 缓存合并 ================= */
-
 function buildFromCache(cache, airportCode, isInQueue) {
   var bag = [], seen = {}, from = [];
 
@@ -550,11 +559,9 @@ function buildFromCache(cache, airportCode, isInQueue) {
     if (n) from.push(tag + ':' + n);
   }
 
-  // 1) 累积池（翻页/多次抓取都沉淀在这里）
   var pool = cache.__pool || {};
   if (airportCode && Array.isArray(pool[airportCode])) feed(pool[airportCode], 'pool');
 
-  // 2) 原始响应缓存补漏，screenList 优先
   var keys = [];
   for (var k0 in cache) {
     if (!Object.prototype.hasOwnProperty.call(cache, k0)) continue;
@@ -596,7 +603,6 @@ function buildFromCache(cache, airportCode, isInQueue) {
   return { items: bag, from: from.join(',') };
 }
 
-/* 把规范化后的航班沉淀到累积池，翻页多次也能叠加 */
 function poolAdd(cache, apt, items) {
   if (!apt || !items || !items.length) return 0;
   var pool = cache.__pool || {};
@@ -620,7 +626,6 @@ function poolAdd(cache, apt, items) {
   return added;
 }
 
-/* 只保留今天、尚未落地的航班 */
 function trimToRestOfDay(items, dateStr) {
   var out = [], now = new Date();
   var hm = pad2(now.getHours()) + ':' + pad2(now.getMinutes());
@@ -628,7 +633,6 @@ function trimToRestOfDay(items, dateStr) {
     var it = items[i];
     if (dateStr && it.date && it.date !== dateStr) continue;
     if (it.arrTime && it.arrTime < hm) {
-      // 已过去 40 分钟以上的不显示
       var a = it.arrTime.split(':'), b = hm.split(':');
       var mins = (parseInt(b[0], 10) * 60 + parseInt(b[1], 10)) - (parseInt(a[0], 10) * 60 + parseInt(a[1], 10));
       if (mins > 40) continue;
@@ -637,8 +641,6 @@ function trimToRestOfDay(items, dateStr) {
   }
   return out.length ? out : items;
 }
-
-/* ================= 主逻辑 ================= */
 
 (function () {
 
@@ -659,10 +661,15 @@ function trimToRestOfDay(items, dateStr) {
   var isQueue = /\/airport\/(in|out)queuev5/i.test(url);
   var isIn = /inqueuev5/i.test(url);
 
-  /* --- 1. 排队页：解密 -> 换数据 -> 重新加密 --- */
+  if (!apt && dec) {
+    var aq = [];
+    collectFlightArrays(dec.obj, '', 0, aq);
+    for (var ax = 0; ax < aq.length && !apt; ax++) apt = aptOfArray(aq[ax].arr);
+  }
+
   if (isQueue) {
     if (!dec) {
-      if (dumpOnce('qnodec')) console.log('[feeyo v10] queue undecodable len=' + body.length);
+      if (dumpOnce('qnodec')) console.log('[feeyo v11] queue undecodable len=' + body.length);
       $done({ body: body });
       return;
     }
@@ -671,11 +678,11 @@ function trimToRestOfDay(items, dateStr) {
       try {
         var rb = (typeof $request.body === 'string') ? $request.body : '';
         var rd = rb ? decodeJson(rb) : null;
-        console.log('[feeyo v10] REQRAW ' + (rb ? rb.slice(0, 80) : '(empty)'));
-        console.log('[feeyo v10] REQDEC ' + (rd ? rd.text.slice(0, 400) : '(not decodable)'));
+        console.log('[feeyo v11] REQRAW ' + (rb ? rb.slice(0, 80) : '(empty)'));
+        console.log('[feeyo v11] REQDEC ' + (rd ? rd.text.slice(0, 400) : '(not decodable)'));
         var hs = '';
         try { for (var hk2 in $request.headers) hs += hk2 + ':' + String($request.headers[hk2]).slice(0, 12) + ' '; } catch (e) {}
-        console.log('[feeyo v10] HDR ' + hs.slice(0, 400));
+        console.log('[feeyo v11] HDR ' + hs.slice(0, 400));
       } catch (e) {}
     }
 
@@ -685,18 +692,18 @@ function trimToRestOfDay(items, dateStr) {
       var ql0 = Array.isArray(d0.queueList) ? d0.queueList : [];
       var pl0 = Array.isArray(d0.prolist) ? d0.prolist : [];
       var pf0 = Array.isArray(d0.preFlight) ? d0.preFlight : (Array.isArray(d0.preFly) ? d0.preFly : []);
-      console.log('[feeyo v10] QV=' + dec.via + ' apt=' + apt +
+      console.log('[feeyo v11] QV=' + dec.via + ' apt=' + apt +
                   ' queue=' + ql0.length + ' pro=' + pl0.length + ' pre=' + pf0.length +
                   ' tip=' + JSON.stringify(d0.tip || '') +
                   ' proplus=' + JSON.stringify(d0.proplus || null).slice(0, 120));
-      console.log('[feeyo v10] Q1 ' + JSON.stringify(ql0[0] || null).slice(0, 420));
-      console.log('[feeyo v10] P1 ' + JSON.stringify(pl0[0] || null).slice(0, 420));
-      console.log('[feeyo v10] PF1 ' + JSON.stringify(pf0[0] || null).slice(0, 420));
+      console.log('[feeyo v11] Q1 ' + JSON.stringify(ql0[0] || null).slice(0, 420));
+      console.log('[feeyo v11] P1 ' + JSON.stringify(pl0[0] || null).slice(0, 420));
+      console.log('[feeyo v11] PF1 ' + JSON.stringify(pf0[0] || null).slice(0, 420));
     }
 
     var built = buildFromCache(loadCache(), apt, isIn);
     if (!built) {
-      if (dumpOnce('qnocache')) console.log('[feeyo v10] no cache for ' + (apt || '??'));
+      if (dumpOnce('qnocache')) console.log('[feeyo v11] no cache for ' + (apt || '??'));
       $done({ body: body });
       return;
     }
@@ -704,7 +711,6 @@ function trimToRestOfDay(items, dateStr) {
     var obj = dec.obj;
     if (!obj || typeof obj !== 'object') { $done({ body: body }); return; }
 
-    // 找到真正装列表的那一层
     var holders = [];
     function pushHolder(h) { if (h && typeof h === 'object' && holders.indexOf(h) < 0) holders.push(h); }
     pushHolder(obj);
@@ -714,62 +720,90 @@ function trimToRestOfDay(items, dateStr) {
 
     var items = trimToRestOfDay(built.items, '');
 
-    // 若原响应里已有列表（含乘客数等），按航班号补齐缺的字段
-    var origList = null;
-    for (var hi = 0; hi < holders.length; hi++) {
-      var h0 = holders[hi];
-      if (Array.isArray(h0.queueList) && h0.queueList.length) { origList = h0.queueList; break; }
-      if (Array.isArray(h0.prolist) && h0.prolist.length && !origList) origList = h0.prolist;
-      if (Array.isArray(h0.list) && h0.list.length && !origList) origList = h0.list;
-    }
-    if (origList) {
-      var byNum = {};
-      for (var oi = 0; oi < origList.length; oi++) {
-        var x = origList[oi];
-        if (!x) continue;
-        var xn = String(x.flightNum || x.fnum || '').toUpperCase();
-        if (xn) byNum[xn] = x;
-      }
-      for (var ii = 0; ii < items.length; ii++) {
-        var src = byNum[items[ii].flightNum];
-        if (!src) continue;
-        if (!items[ii].passager) items[ii].passager = normPax(src.passager);
-        if (!items[ii].yw) items[ii].yw = String(src.yw || '');
-        if (!items[ii].terminal) items[ii].terminal = String(src.terminal || '');
-        if (!items[ii].depCityName) items[ii].depCityName = String(src.depCityName || '');
-        if (!items[ii].arrCityName) items[ii].arrCityName = String(src.arrCityName || '');
-      }
+    var qArrs = [];
+    collectFlightArrays(obj, '', 0, qArrs);
+
+    if (dumpOnce('qarr_' + (isIn ? 'in' : 'out'))) {
+      var kl = '';
+      for (var qk in obj) if (Object.prototype.hasOwnProperty.call(obj, qk)) kl += qk + ',';
+      var dk2 = (obj.data && typeof obj.data === 'object') ? obj.data : null;
+      var kl2 = '';
+      if (dk2) for (var qk2 in dk2) if (Object.prototype.hasOwnProperty.call(dk2, qk2)) kl2 += qk2 + ',';
+      var pl2 = '';
+      for (var qi4 = 0; qi4 < qArrs.length; qi4++) pl2 += qArrs[qi4].path + '=' + qArrs[qi4].arr.length + ' ';
+      console.log('[feeyo v11] KEYS root:' + kl.slice(0, 160) + ' | data:' + kl2.slice(0, 200));
+      console.log('[feeyo v11] ARRS ' + pl2.slice(0, 320));
+      console.log('[feeyo v11] TPL ' + JSON.stringify(qArrs.length ? qArrs[0].arr[0] : null).slice(0, 500));
     }
 
-    if (!items.length) { $done({ body: body }); return; }
+    var tplAny = null;
+    for (var ta = 0; ta < qArrs.length && !tplAny; ta++) {
+      if (qArrs[ta].arr.length && qArrs[ta].arr[0] && typeof qArrs[ta].arr[0] === 'object') tplAny = qArrs[ta].arr[0];
+    }
 
-    var origLen = origList ? origList.length : 0;
-    if (items.length <= origLen) {
-      console.log('[feeyo v10] keep original (built ' + items.length + ' <= orig ' + origLen + ') apt=' + apt + ' src=' + built.from);
+    var replaced = 0;
+    for (var qa = 0; qa < qArrs.length; qa++) {
+      var qpath = qArrs[qa].path || '';
+      if (/preflight|prefly/i.test(qpath)) continue;
+      var qarr = qArrs[qa].arr;
+      var tpl = qarr.length ? qarr[0] : tplAny;
+      if (!tpl || typeof tpl !== 'object') continue;
+
+      var have = {};
+      for (var hx = 0; hx < qarr.length; hx++) {
+        var hn = String(pick(qarr[hx], ['fnum', 'flightnum', 'flightnumber', 'flightno', 'fcflightno']) || '').toUpperCase();
+        if (hn) have[hn] = 1;
+      }
+
+      var merged = qarr.slice(0), added = 0;
+      for (var rb2 = 0; rb2 < items.length; rb2++) {
+        if (have[items[rb2].flightNum]) continue;
+        have[items[rb2].flightNum] = 1;
+        merged.push(rewriteLike(tpl, items[rb2]));
+        added++;
+      }
+      if (added <= 0) continue;
+
+      merged.sort(function (a, b) {
+        var x = String(pick(a, ['arrest', 'arrtime', 'arrplantime']) || '99:99');
+        var y = String(pick(b, ['arrest', 'arrtime', 'arrplantime']) || '99:99');
+        if (x !== y) return x < y ? -1 : 1;
+        return 0;
+      });
+      qarr.length = 0;
+      for (var mc = 0; mc < merged.length; mc++) qarr.push(merged[mc]);
+      replaced += added;
+    }
+
+    var tg0 = (obj.data && typeof obj.data === 'object') ? obj.data : obj;
+    if (Array.isArray(tg0.queueList) && !tg0.queueList.length && tplAny && items.length) {
+      for (var qf = 0; qf < items.length; qf++) tg0.queueList.push(rewriteLike(tplAny, items[qf]));
+      replaced += tg0.queueList.length;
+    }
+
+    if (!replaced) {
+      var itemsQ = [];
+      for (var iq = 0; iq < items.length; iq++) {
+        itemsQ.push({
+          fnum: items[iq].flightNum, dep: items[iq].depcode, arr: items[iq].arrcode,
+          date: items[iq].date, flightStatus: items[iq].status,
+          arrEst: items[iq].arrTime, departure: items[iq].depCityName,
+          yw: items[iq].yw, terminal: items[iq].terminal,
+          arrivalActualTimestamp: 0, passager: items[iq].passager
+        });
+      }
+      var tgt = (obj.data && typeof obj.data === 'object') ? obj.data : obj;
+      if (Array.isArray(tgt.queueList) && itemsQ.length > tgt.queueList.length) { tgt.queueList = itemsQ; replaced++; }
+      else if (Array.isArray(tgt.prolist) && itemsQ.length > tgt.prolist.length) { tgt.prolist = itemsQ; replaced++; }
+      else if (!tgt.queueList) { tgt.queueList = itemsQ; replaced++; }
+    }
+
+    if (!replaced) {
+      console.log('[feeyo v11] keep original (built ' + items.length + ') apt=' + apt + ' src=' + built.from);
       $done({ body: body });
       return;
     }
 
-    var touched = [];
-    for (var hj = 0; hj < holders.length; hj++) {
-      var h = holders[hj];
-      if ('queueList' in h || 'prolist' in h || 'list' in h || 'preFlight' in h || 'preFly' in h) {
-        if ('queueList' in h) h.queueList = items;
-        if ('prolist' in h) h.prolist = items;
-        if ('list' in h && holders.indexOf(h) === holders.length - 1) h.list = items;
-        if ('preFly' in h) { /* 保留原已进港 */ }
-        touched.push(h === obj ? 'root' : (h === obj.data ? 'data' : 'queueData'));
-      }
-    }
-    if (!touched.length) {
-      // 兜底：直接写到 data
-      var target = (obj.data && typeof obj.data === 'object') ? obj.data : obj;
-      target.queueList = items;
-      target.prolist = items;
-      touched.push('fallback');
-    }
-
-    // 解除 pro+ 遮罩
     for (var hk = 0; hk < holders.length; hk++) {
       var hh = holders[hk];
       if ('tip' in hh) hh.tip = '';
@@ -786,29 +820,35 @@ function trimToRestOfDay(items, dateStr) {
         hh.proPlus.explain = '';
       }
     }
+    var tgt2 = (obj.data && typeof obj.data === 'object') ? obj.data : obj;
+    if (tgt2.proplus && typeof tgt2.proplus === 'object') { tgt2.proplus.status = 1; tgt2.proplus.explain = ''; }
+    if (tgt2.tip !== undefined) tgt2.tip = '';
     if (obj.isVip !== undefined) obj.isVip = 1;
-    if (obj.data && obj.data.isVip !== undefined) obj.data.isVip = 1;
+    if (tgt2.isVip !== undefined) tgt2.isVip = 1;
 
     var outBody = encodeAs(obj, dec.via);
 
-    console.log('[feeyo v10] ' + (apt || '??') + ' filled ' + items.length +
-                ' flights [' + touched.join('/') + '] via=' + dec.via +
+    console.log('[feeyo v11] ' + (apt || '??') + ' filled ' + items.length +
+                ' flights (+' + replaced + ' new) via=' + dec.via +
                 ' src=' + built.from + ' out=' + outBody.length);
 
     $done({ body: outBody, headers: $response.headers });
     return;
   }
 
-  /* --- 2. 其它接口：解密 -> 缓存 --- */
   if (!dec) {
     if (dumpOnce('undec_' + dpath.replace(/[^A-Za-z0-9_]/g, '_')))
-      console.log('[feeyo v10] undecoded ' + dpath + ' len=' + body.length);
+      console.log('[feeyo v11] undecoded ' + dpath + ' len=' + body.length);
     $done({ body: body });
     return;
   }
 
   var found = [];
   collectFlightArrays(dec.obj, '', 0, found);
+
+  if (!apt && found.length) {
+    for (var af = 0; af < found.length && !apt; af++) apt = aptOfArray(found[af].arr);
+  }
 
   if (found.length) {
     var c = loadCache();
@@ -845,17 +885,16 @@ function trimToRestOfDay(items, dateStr) {
     var pooled = apt ? poolAdd(c, apt, norm) : 0;
     saveCache(c);
 
-    console.log('[feeyo v10] cached ' + key + ' (' + count + ' flights, via ' + dec.via + ', apt=' + apt + ', pool+' + pooled + ')');
+    console.log('[feeyo v11] cached ' + key + ' (' + count + ' flights, via ' + dec.via + ', apt=' + apt + ', pool+' + pooled + ')');
 
     if (/screenList/i.test(dpath) && dumpOnce('req_screen')) {
       try {
-        var rb2 = (typeof $request.body === 'string') ? $request.body : '';
-        var rd2 = rb2 ? decodeJson(rb2) : null;
-        console.log('[feeyo v10] SREQ ' + (rd2 ? rd2.text.slice(0, 400) : (rb2 ? 'RAW:' + rb2.slice(0, 120) : '(empty)')));
+        var rb3 = (typeof $request.body === 'string') ? $request.body : '';
+        var rd2 = rb3 ? decodeJson(rb3) : null;
+        console.log('[feeyo v11] SREQ ' + (rd2 ? rd2.text.slice(0, 400) : (rb3 ? 'RAW:' + rb3.slice(0, 120) : '(empty)')));
       } catch (e) {}
     }
 
-    // 首次见到 screenList / overviewv6，把结构打出来，便于校准字段
     if (dumpOnce('shape_' + key)) {
       var sh = '';
       for (var fk = 0; fk < Math.min(found.length, 3); fk++) {
@@ -864,8 +903,8 @@ function trimToRestOfDay(items, dateStr) {
         for (var k5 in it0) if (Object.prototype.hasOwnProperty.call(it0, k5)) ks += k5 + '=';
         sh += ' [' + found[fk].path + ' n=' + found[fk].arr.length + ' keys:' + ks + ']';
       }
-      console.log('[feeyo v10] SHAPE' + dpath + sh.slice(0, 600));
-      console.log('[feeyo v10] HEAD' + dpath + ' ' + dec.text.slice(0, 500));
+      console.log('[feeyo v11] SHAPE' + dpath + sh.slice(0, 600));
+      console.log('[feeyo v11] HEAD' + dpath + ' ' + dec.text.slice(0, 500));
     }
   }
 
